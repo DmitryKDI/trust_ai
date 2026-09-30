@@ -75,6 +75,7 @@ export function VariantsScreen({ next, back }: { next: () => void; back: () => v
         <div className="notice">
           План прочитан автоматически: {project.recognition.rooms.length} помещ., {project.recognition.openings.windows} окон, {project.recognition.openings.doors} дверей; масштаб — {({ dimensions: 'по размерам на чертеже', area: 'по площади квартиры', typical: 'прикинут по дверям — при необходимости подправьте ползунком', assumed: 'прикинут приблизительно — подправьте ползунком' } as const)[project.recognition.scale.method]}.
           {' '}Если стена, дверь или комната определена неверно — <button className="btn ghost sm" onClick={back}>поправьте план</button> и пересоберите варианты.
+          {project.recognition.notes?.map((t, i) => <div key={i} className="small" style={{ marginTop: 6 }}>{t}</div>)}
         </div>
       )}
       {project.planImage && <ScalePanel busy={busy} onApplied={() => setRebuild((n) => n + 1)} />}

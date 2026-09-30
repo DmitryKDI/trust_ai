@@ -324,6 +324,22 @@ function quickPlanCore(inp: QuickInput): QuickResult {
       if (i < along.length) s0 = along[i];
     }
   }
+  // 4в. Двери-«чёрточки» (старые московские планы БТИ): стена не разорвана, дверь отмечена
+  // короткой линией поперёк стены — узким «шипом», торчащим в обе комнаты.
+  for (const t of tickCrossings(labels, w, h, pxPerM)) {
+    if (!(isRoom(t.la) || isRoom(t.lb)) || !okSide(t.la) || !okSide(t.lb)) continue;
+    const half = (0.8 * pxPerM) / 2;
+    const s0 = Math.max(t.from, t.at - half), e0 = Math.min(t.to, t.at + half);
+    if ((e0 - s0) * mmPerPx < 450) continue;
+    const a: Pt = t.horiz ? { x: U(s0) * k, y: U(t.mid) * k } : { x: U(t.mid) * k, y: U(s0) * k };
+    const b: Pt = t.horiz ? { x: U(e0) * k, y: U(t.mid) * k } : { x: U(t.mid) * k, y: U(e0) * k };
+    const cm = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    if (openings.some((o) => Math.hypot((o.a.x + o.b.x) / 2 - cm.x, (o.a.y + o.b.y) / 2 - cm.y) < 600)) continue;
+    if (gapOpenings.some((g) => Math.hypot((g.o.a.x + g.o.b.x) / 2 - cm.x, (g.o.a.y + g.o.b.y) / 2 - cm.y) < 600)) continue;
+    const outside = exteriorIds.has(t.la) || exteriorIds.has(t.lb);
+    const o: Opening = { id: uid('d'), type: 'door', a, b, thickness: 120, hinge: 'a', swing: 1, isEntrance: outside, sillHeight: null, ...prov(inp.page) };
+    gapOpenings.push({ o, key: `${Math.min(t.la, t.lb)}:${Math.max(t.la, t.lb)}:t${gapOpenings.length}`, outside });
+  }
   for (const g of gapOpenings) {
     openings.push(g.o);
     if (!g.outside) doorOf.set(g.key, g.o);
@@ -419,6 +435,8 @@ function quickPlanCore(inp: QuickInput): QuickResult {
   }
   const entrance = ent[0] ?? null;
   if (!entrance) notes.push('Вход не найден — отметьте входную дверь, если нужна проверка проходов.');
+  // Меньше ~15 px на метр двери и тонкие перегородки уже не различимы.
+  if (pxPerM < 15) notes.push('План на картинке слишком мелкий — двери и перегородки могут не распознаться. Загрузите скан крупнее (план хотя бы на пол-листа).');
   // Двери открываются в меньшее помещение.
   for (const [key, o] of doorOf) {
     if (o.isEntrance) { o.swing = 1; continue; }
@@ -516,6 +534,58 @@ function labelBoxes(labels: Int32Array, w: number): Map<number, { x0: number; y0
     else { if (x < b.x0) b.x0 = x; if (x > b.x1) b.x1 = x; if (y < b.y0) b.y0 = y; if (y > b.y1) b.y1 = y; }
   }
   return m;
+}
+
+/**
+ * Чёрточки поперёк стен. Сканируем столбцы (горизонтальные стены) и строки (вертикальные):
+ * переход «метка A → преграда → метка B» — пересечение стены. Для каждой стены между A и B
+ * берём обычную толщину (медиану); узкое место (до ~10 см вдоль стены), где преграда шире
+ * с обеих сторон, — чёрточка двери.
+ */
+function tickCrossings(labels: Int32Array, w: number, h: number, pxPerM: number) {
+  const out: { la: number; lb: number; horiz: boolean; at: number; mid: number; from: number; to: number }[] = [];
+  const maxWall = 0.7 * pxPerM, maxTick = Math.max(3, Math.round(0.1 * pxPerM)), stick = Math.max(2, Math.round(0.04 * pxPerM));
+  for (const horiz of [true, false]) {
+    // horiz: стена горизонтальна, сканируем столбцы x, вдоль столбца — поперёк стены.
+    const lines = horiz ? w : h, len = horiz ? h : w;
+    const at = (line: number, i: number) => (horiz ? i * w + line : line * w + i);
+    const cross = new Map<string, { line: number; a0: number; a1: number }[]>();
+    for (let line = 0; line < lines; line++) {
+      let prev = 0, runStart = -1;
+      for (let i = 0; i < len; i++) {
+        const l = labels[at(line, i)];
+        if (l <= 0) { if (runStart < 0) runStart = i; continue; }
+        if (runStart >= 0 && prev > 0 && l !== prev && i - runStart <= maxWall) {
+          const a = Math.min(prev, l), b = Math.max(prev, l);
+          const key = `${a}:${b}:${Math.round((runStart + i) / 2 / (0.3 * pxPerM))}`;
+          const list = cross.get(key) ?? [];
+          list.push({ line, a0: runStart, a1: i - 1 });
+          cross.set(key, list);
+        }
+        prev = l; runStart = -1;
+      }
+    }
+    for (const [key, list] of cross) {
+      if (list.length < 3 * maxTick) continue;
+      const [la, lb] = key.split(':').map(Number);
+      const med = (v: number[]) => v.sort((x, y) => x - y)[Math.floor(v.length / 2)];
+      const b0 = med(list.map((c) => c.a0)), b1 = med(list.map((c) => c.a1));
+      list.sort((x, y) => x.line - y.line);
+      const from = list[0].line, to = list[list.length - 1].line;
+      let i = 0;
+      while (i < list.length) {
+        if (!(list[i].a0 <= b0 - stick && list[i].a1 >= b1 + stick)) { i++; continue; }
+        let j = i;
+        while (j + 1 < list.length && list[j + 1].line === list[j].line + 1 && list[j + 1].a0 <= b0 - stick && list[j + 1].a1 >= b1 + stick) j++;
+        const width = list[j].line - list[i].line + 1;
+        // Узкий шип посередине стены (не на её конце, где стена упирается в другую).
+        if (width <= maxTick && list[i].line - from > maxTick && to - list[j].line > maxTick)
+          out.push({ la, lb, horiz, at: (list[i].line + list[j].line) / 2, mid: (b0 + b1) / 2, from, to });
+        i = j + 1;
+      }
+    }
+  }
+  return out;
 }
 
 /** Где две разные метки соприкасаются (через свободные пиксели). */

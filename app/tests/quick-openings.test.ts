@@ -52,4 +52,29 @@ describe('быстрый режим: проёмы, перечёркнутые т
     expect(r.geometry.rooms.length).toBe(3);
     expect(r.geometry.openings.filter((o) => o.type === 'door' && !o.isEntrance).length).toBeGreaterThanOrEqual(2);
   });
+  it('старый план: стены двойными линиями, двери — чёрточки поперёк стены', () => {
+    // 9×6 м, 60 px/м; стены — две линии по 2 px, проёмов нет, дверь — поперечная чёрточка.
+    const S = 60, W = 760, H = 560, X = 110, Y = 100;
+    const d = new Uint8ClampedArray(W * H * 4).fill(255);
+    const fill = (x0: number, y0: number, x1: number, y1: number) => {
+      for (let y = Math.round(y0); y < Math.round(y1); y++) for (let x = Math.round(x0); x < Math.round(x1); x++) d.set([30, 30, 30, 255], (y * W + x) * 4);
+    };
+    const wall = (x0: number, y0: number, x1: number, y1: number, t: number) => {
+      const hz = y0 === y1, T = (t * S) / 2;
+      const [a, b] = [Math.min(x0, x1) * S + X, Math.max(x0, x1) * S + X], [c, e] = [Math.min(y0, y1) * S + Y, Math.max(y0, y1) * S + Y];
+      if (hz) { fill(a - T, c - T, b + T, c - T + 2); fill(a - T, c + T - 2, b + T, c + T); }
+      else { fill(a - T, c - T, a - T + 2, e + T); fill(a + T - 2, c - T, a + T, e + T); }
+    };
+    const tick = (x: number, y: number, hz: boolean) => {
+      const cx = x * S + X, cy = y * S + Y, r = 0.2 * S;
+      if (hz) fill(cx - 1, cy - r, cx + 1, cy + r); else fill(cx - r, cy - 1, cx + r, cy + 1);
+    };
+    wall(0, 0, 9, 0, 0.4); wall(9, 0, 9, 6, 0.4); wall(0, 6, 9, 6, 0.4); wall(0, 0, 0, 6, 0.4);
+    wall(4.5, 0, 4.5, 6, 0.15); wall(4.5, 3, 9, 3, 0.15);
+    tick(4.5, 4.6, false); // прихожая → гостиная
+    tick(6.5, 3, true);    // прихожая → спальня
+    const r = run({ rgba: d, w: W, h: H });
+    expect(r.geometry.rooms.length).toBe(3);
+    expect(r.geometry.openings.filter((o) => o.type === 'door' && !o.isEntrance).length).toBeGreaterThanOrEqual(2);
+  });
 });

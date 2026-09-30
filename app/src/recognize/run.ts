@@ -53,7 +53,7 @@ export async function recognizeDocument(doc: SourceDocument, page: number, opts:
   const report: RecognizeReport = {
     scale: { k, method: r.report.scaleMethod === 'doors' ? 'typical' : r.report.scaleMethod, support: 0 },
     walls: 0,
-    openings: { doors: r.report.doors, windows: 0, entrance: r.report.entrance },
+    openings: { doors: r.geometry.openings.filter((o) => o.type === 'door').length, windows: r.geometry.openings.filter((o) => o.type === 'window').length, entrance: r.report.entrance },
     rooms: r.report.rooms.map((x) => ({ ...x, type: x.type as never, byLabel: false })),
     notes: r.report.notes,
     ms: r.report.ms,
