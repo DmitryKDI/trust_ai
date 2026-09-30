@@ -18,7 +18,6 @@ test('скан БТИ: построить варианты одной кнопк
   await page.getByRole('button', { name: 'Создать проект' }).click();
   await page.getByRole('button', { name: /Загрузка/ }).click();
   await page.locator('input[type=file]').first().setInputFiles(img);
-  await page.getByPlaceholder('например, 52,4').fill('82');
   await page.getByRole('button', { name: 'Построить варианты' }).click();
   await expect(page.locator('.vcard').first()).toBeVisible({ timeout: 120_000 });
   fs.mkdirSync(out, { recursive: true });
@@ -32,10 +31,6 @@ test('скан БТИ: построить варианты одной кнопк
   });
   fs.writeFileSync(path.join(out, 'bti-browser.json'), JSON.stringify(rec, null, 1));
   await page.screenshot({ path: path.join(out, 'bti-variants.png'), fullPage: true });
-  for (const style of ['warm', 'blueprint']) {
-    await page.locator('select').filter({ has: page.locator('option[value="warm"]') }).selectOption(style);
-    await page.locator('.detail').screenshot({ path: path.join(out, `bti-detail-${style}.png`) });
-  }
-  await page.locator('select').filter({ has: page.locator('option[value="warm"]') }).selectOption('graphite');
-  await page.locator('.detail').screenshot({ path: path.join(out, 'bti-detail-graphite.png') });
+  await page.locator('.detail').screenshot({ path: path.join(out, 'bti-detail.png') });
+
 });

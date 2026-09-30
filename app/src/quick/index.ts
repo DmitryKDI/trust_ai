@@ -5,6 +5,7 @@ import { emptyGeometry, uid } from '../model/defaults';
 import { closeDir, components, dilate, erode, newBin, or, type Bin } from '../recognize/raster';
 import { assignTypes } from '../recognize/index';
 import { simplifyRing, union, fromRing, toGeom, polyArea } from '../geometry/poly';
+import { scaleGeometry } from '../editor/ops';
 
 export interface QuickInput {
   rgba: Uint8ClampedArray | Uint8Array;
@@ -22,7 +23,7 @@ export interface QuickResult {
   geometry: PlanGeometry;
   /** Маска стен для стилизованной подложки: белые стены на прозрачном фоне (RGBA). */
   wallsMask: { rgba: Uint8ClampedArray; w: number; h: number };
-  report: { rooms: { name: string; type: string; areaM2: number }[]; doors: number; entrance: boolean; pxPerM: number; areaAssumed: boolean; notes: string[]; ms: number };
+  report: { rooms: { name: string; type: string; areaM2: number }[]; doors: number; entrance: boolean; pxPerM: number; areaAssumed: boolean; scaleMethod: 'area' | 'doors' | 'assumed'; notes: string[]; ms: number };
 }
 
 const prov = (page: number | null) => ({ source: 'suggested' as const, verifiedByManager: false, sourcePage: page });
@@ -118,7 +119,6 @@ export function quickPlan(inp: QuickInput): QuickResult {
 
   // 2. Масштаб и деление на комнаты: открытие свободного пространства рвёт узкие дверные «горлышки».
   const areaM2 = inp.areaM2 && inp.areaM2 > 10 ? inp.areaM2 : null;
-  if (!areaM2) notes.push('Площадь не указана — масштаб по типовой квартире 55 м²; впишите площадь с плана для точных размеров мебели.');
   let pxPerM = Math.min(w, h) / 12;
   let labels: Int32Array = new Int32Array(n);
   let exteriorIds = new Set<number>();
@@ -244,7 +244,36 @@ export function quickPlan(inp: QuickInput): QuickResult {
     ...emptyGeometry(), sourcePage: inp.page, rooms, openings,
     calibration: { p1: { x: 0, y: 0 }, p2: { x: U(pxPerM), y: 0 }, mm: 1000, mmPerUnit: k, method: areaM2 ? 'area' : 'assumed' },
   };
-  const typed = assignTypes(geo, [], 1, entrance, inp.children);
+  // Без площади масштаб прикидываем по дверным проёмам: межкомнатная дверь ≈ 0,85 м.
+  let scaleMethod: 'area' | 'doors' | 'assumed' = areaM2 ? 'area' : 'assumed';
+  if (!areaM2) {
+    const ws = openings.filter((o) => !o.isEntrance).map((o) => Math.hypot(o.b.x - o.a.x, o.b.y - o.a.y)).filter((x) => x >= 450 && x < 1600).sort((a, b) => a - b);
+    if (ws.length >= 2) {
+      const f = 850 / ws[Math.floor(ws.length / 2)];
+      if (f > 0.5 && f < 2) {
+        geo = { ...scaleGeometry(geo, f), calibration: { ...geo.calibration!, mmPerUnit: geo.calibration!.mmPerUnit * f, method: 'typical' } };
+        pxPerM /= f;
+        scaleMethod = 'doors';
+      }
+    }
+  }
+  // Нет ни площади, ни дверей: ширина двух крупнейших комнат ≈ 3,8 м (типично для квартир).
+  if (scaleMethod === 'assumed') {
+    const shorts = geo.rooms.map((r) => {
+      const xs = r.polygon.map((q) => q.x), ys = r.polygon.map((q) => q.y);
+      const bw = Math.max(...xs) - Math.min(...xs), bh = Math.max(...ys) - Math.min(...ys);
+      return { a: polyArea(r.polygon), s: Math.min(bw, bh), l: Math.max(bw, bh) };
+    }).filter((x) => x.l / x.s < 2.2).sort((a, b) => b.a - a.a).slice(0, 2);
+    if (shorts.length) {
+      const f = 3800 / (shorts.reduce((t, x) => t + x.s, 0) / shorts.length);
+      if (f > 0.4 && f < 2.5) {
+        geo = { ...scaleGeometry(geo, f), calibration: { ...geo.calibration!, mmPerUnit: geo.calibration!.mmPerUnit * f, method: 'typical' } };
+        pxPerM /= f;
+        scaleMethod = 'doors';
+      }
+    }
+  }
+  const typed = assignTypes(geo, [], 1, entrance && geo.openings.find((o) => o.id === entrance.id) || null, inp.children);
   geo = { ...geo, rooms: typed.rooms };
 
   // 6. Маска стен для подложки: преграды без мелкого «шума» (текст, цифры), только в пределах квартиры.
@@ -269,7 +298,7 @@ export function quickPlan(inp: QuickInput): QuickResult {
     wallsMask,
     report: {
       rooms: geo.rooms.map((r) => ({ name: r.name, type: r.type, areaM2: Math.round(polyArea(r.polygon) / 1e4) / 100 })),
-      doors: openings.length, entrance: !!entrance, pxPerM, areaAssumed: !areaM2, notes, ms: Date.now() - t0 + seedCount * 0,
+      doors: openings.length, entrance: !!entrance, pxPerM, areaAssumed: !areaM2, scaleMethod, notes, ms: Date.now() - t0 + seedCount * 0,
     },
   };
 }

@@ -148,10 +148,10 @@ export function UploadScreen({ next, toVariants, toMarkup }: { next: () => void;
           <h2>План</h2>
           <DocPicker role="plan" />
           <label className="field" style={{ marginTop: 14, maxWidth: 360 }}>
-            Общая площадь квартиры, м²
+            Общая площадь квартиры, м² (необязательно)
             <input inputMode="decimal" value={project.brief.area} placeholder="например, 52,4" style={needArea && !project.brief.area ? { borderColor: 'var(--err)' } : undefined}
               onChange={(e) => update((p) => ({ ...p, brief: { ...p.brief, area: e.target.value } }))} />
-            <span className="hint">Нужна для масштаба, если на плане нет размерных цифр (скан, фото, скриншот)</span>
+            <span className="hint">Если указать — размеры мебели будут точнее. Без неё масштаб прикидывается по дверям, его можно подправить ползунком.</span>
           </label>
           <div className="actions">
             <button className="btn" disabled={!ok || !!stage} onClick={build}>{stage ? <><span className="spinner" />{stage}</> : 'Построить варианты'}</button>

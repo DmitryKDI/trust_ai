@@ -399,9 +399,10 @@ export function assignTypes(g: PlanGeometry, texts: TextBox[], k: number, entran
       lit[0].type = 'kitchen-living';
       lit[0].name = 'Кухня-гостиная';
     } else {
-      // Кухня: ближайшая к мокрым зонам комната 5–18 м², кроме самой большой.
-      const pool = lit.filter((r, i) => area(r) >= 5 && area(r) <= 18 && i > 0);
-      const kitchen = (pool.length ? pool : lit).slice().sort((a, b) => nearest(a, wetC) - nearest(b, wetC))[0];
+      // Кухня: самое маленькое «обычное» (не вытянутое) помещение 5,5–16 м², кроме самого большого.
+      const notLong = (r: Room) => { const bb = bboxOf(r.polygon); return Math.max(bb.w, bb.h) / Math.min(bb.w, bb.h) < 2.2; };
+      const pool = lit.filter((r, i) => area(r) >= 5.5 && area(r) <= 16 && i > 0 && notLong(r));
+      const kitchen = pool.length ? pool.slice().sort((a, b) => area(a) - area(b))[0] : lit.slice(1).sort((a, b) => nearest(a, wetC) - nearest(b, wetC))[0] ?? lit[0];
       kitchen.type = 'kitchen';
       kitchen.name = 'Кухня';
     }

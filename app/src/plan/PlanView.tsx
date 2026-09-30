@@ -31,7 +31,7 @@ export interface PlanViewProps {
   className?: string;
   ariaLabel?: string;
   svgProps?: React.SVGProps<SVGSVGElement>;
-  /** Стилизованные стены (маска картинки) — для планов без векторных стен. */
+  /** Исходная картинка плана (скан, фото) — показывается как есть, мебель поверх. */
   wallImage?: { url: string; widthMm: number; heightMm: number } | null;
   planStyle?: PlanStyle;
 }
@@ -60,7 +60,8 @@ export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanVi
   const fs = Math.max(120, (vb.maxX - vb.minX) / 90);
   const wetRooms = g.rooms.filter((r) => r.type === 'bath' || r.type === 'wc');
   const pal = PALETTES[p.planStyle ?? 'graphite'];
-  const maskId = `wm${Math.round(vb.minX)}${Math.round(vb.maxY)}`;
+  // Исходный план БТИ (картинка) показывается как есть — поверх только мебель.
+  const orig = !!p.wallImage && !editor;
 
   return (
     <svg
@@ -77,17 +78,18 @@ export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanVi
         <pattern id="hatch" width="120" height="120" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><path d="M0 0V120" stroke="#c9cfcf" strokeWidth="14" /></pattern>
       </defs>
       <rect x={vb.minX} y={vb.minY} width={vb.maxX - vb.minX} height={vb.maxY - vb.minY} fill={editor ? '#f4f4f1' : pal.sheet} />
+      {p.wallImage && !editor && <image href={p.wallImage.url} x={0} y={0} width={p.wallImage.widthMm} height={p.wallImage.heightMm} preserveAspectRatio="none" />}
       {underlay && <image href={underlay.url} x={0} y={0} width={underlay.widthMm} height={underlay.heightMm} opacity={underlay.opacity} preserveAspectRatio="none" />}
 
       {/* Помещения */}
       {g.rooms.map((r) => (
-        <path key={r.id} d={polyPath(r.polygon)} fill={r.type === 'balcony' ? '#f1f2ee' : editor ? 'rgba(255,255,255,.55)' : pal.floor}
+        <path key={r.id} d={polyPath(r.polygon)} fill={orig ? 'none' : r.type === 'balcony' ? '#f1f2ee' : editor ? 'rgba(255,255,255,.55)' : pal.floor}
           stroke={editor ? (r.verifiedByManager ? '#9fb0a6' : '#c9a36b') : 'none'} strokeWidth={1} strokeDasharray={editor && !r.verifiedByManager ? '6 4' : undefined} vectorEffect="non-scaling-stroke"
           onClick={() => p.onElementClick?.('room', r.id)} />
       ))}
-      {wetRooms.map((r) => <path key={'wet' + r.id} d={polyPath(r.polygon)} fill="url(#tile)" opacity={editor ? 0.6 : 1} pointerEvents="none" />)}
+      {!orig && wetRooms.map((r) => <path key={'wet' + r.id} d={polyPath(r.polygon)} fill="url(#tile)" opacity={editor ? 0.6 : 1} pointerEvents="none" />)}
       {g.wetZones.map((z) => <path key={z.id} d={polyPath(z.polygon)} fill="url(#tile)" stroke="#9fb7bd" strokeWidth={1} vectorEffect="non-scaling-stroke" onClick={() => p.onElementClick?.('wet', z.id)} />)}
-      {g.fixed.map((f) => (
+      {!orig && g.fixed.map((f) => (
         <path key={f.id} d={polyPath(f.polygon)} onClick={() => p.onElementClick?.('fixed', f.id)}
           fill={f.kind === 'void' ? 'url(#hatch)' : f.kind === 'radiator' ? '#dfeaec' : f.kind === 'riser' ? '#f3d9c4' : '#d9dedc'}
           stroke={f.kind === 'riser' ? '#c8773f' : f.kind === 'radiator' ? '#7fa3a8' : '#8a9492'} strokeWidth={1} vectorEffect="non-scaling-stroke"
@@ -101,18 +103,10 @@ export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanVi
               stroke={w.id === selectedId ? '#d2691e' : w.verifiedByManager ? '#2f3739' : '#c9a36b'} strokeWidth={w.id === selectedId ? 2.5 : 1}
               strokeDasharray={w.verifiedByManager ? undefined : '6 4'} vectorEffect="non-scaling-stroke" onClick={() => p.onElementClick?.('wall', w.id)} />
           ))
-        : <path d={geomPath(walls)} fill={pal.wall} fillRule="evenodd" />}
-      {p.wallImage && !editor && (
-        <g pointerEvents="none">
-          <mask id={maskId} maskUnits="userSpaceOnUse" x={0} y={0} width={p.wallImage.widthMm} height={p.wallImage.heightMm}>
-            <image href={p.wallImage.url} x={0} y={0} width={p.wallImage.widthMm} height={p.wallImage.heightMm} preserveAspectRatio="none" />
-          </mask>
-          <rect x={0} y={0} width={p.wallImage.widthMm} height={p.wallImage.heightMm} fill={pal.wall} mask={`url(#${maskId})`} />
-        </g>
-      )}
+        : !orig && <path d={geomPath(walls)} fill={pal.wall} fillRule="evenodd" />}
 
       {/* Проёмы */}
-      {g.openings.map((o) => {
+      {!orig && g.openings.map((o) => {
         const sel = o.id === selectedId;
         if (o.type === 'window') {
           const dx = o.b.x - o.a.x, dy = o.b.y - o.a.y, l = Math.hypot(dx, dy) || 1;
@@ -137,7 +131,7 @@ export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanVi
       })}
 
       {/* Подписи помещений */}
-      {mode !== 'thumb' && g.rooms.map((r) => {
+      {mode !== 'thumb' && !orig && g.rooms.map((r) => {
         const c = labelPoint(r.polygon);
         return (
           <g key={'l' + r.id} pointerEvents="none" fontFamily="Manrope, Arial, sans-serif" textAnchor="middle">

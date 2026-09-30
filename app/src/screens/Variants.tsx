@@ -1,4 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState, type PointerEvent as RPE } from 'react';
+import { scaleGeometry } from '../editor/ops';
 import type { FurnitureItem, FurnitureType, PlanStyle, RoomType, Rot, Variant } from '../model/types';
 import { uid } from '../model/defaults';
 import { useStore } from '../state/store';
@@ -22,6 +23,9 @@ export function VariantsScreen({ next, back }: { next: () => void; back: () => v
   const [openId, setOpenId] = useState<string | null>(project.selectedVariantId ?? project.variants[0]?.id ?? null);
   const hash = useMemo(() => geometryHash(g), [g]);
   const stale = project.variants.some((v) => v.geometryHash !== hash);
+
+  const [rebuild, setRebuild] = useState(0);
+  useEffect(() => { if (rebuild) build(); }, [rebuild]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const build = async () => {
     setBusy(true);
@@ -58,21 +62,22 @@ export function VariantsScreen({ next, back }: { next: () => void; back: () => v
       <p className="lead">Варианты под бриф клиента на одном плане. Каждый проверен на проходы, двери, окна и доступ к мебели. Мебель можно двигать мышью — проверка пересчитывается сразу.</p>
       <div className="actions" style={{ marginTop: 0 }}>
         <button className="btn" onClick={build} disabled={busy}>{busy ? <><span className="spinner" />Подбираю варианты…</> : project.variants.length ? 'Пересобрать варианты' : 'Построить варианты'}</button>
-        <label className="check-inline">Стиль плана
+        {!project.planImage && <label className="check-inline">Стиль плана
           <select value={project.planStyle ?? 'graphite'} onChange={(e) => update((p) => ({ ...p, planStyle: e.target.value as PlanStyle }))} style={{ width: 'auto' }}>
             {(Object.keys(STYLE_NAMES) as PlanStyle[]).map((k) => <option key={k} value={k}>{STYLE_NAMES[k]}</option>)}
           </select>
-        </label>
+        </label>}
         {stale && <span className="badge warn">Геометрия изменилась — варианты устарели</span>}
         {project.variants.length > 0 && <span className="muted small">Готовых к показу: {ready.length} из {project.variants.length}</span>}
       </div>
       {err && <div className="notice err">Ошибка сборки: {err}</div>}
       {project.recognition && (
         <div className="notice">
-          План прочитан автоматически: {project.recognition.rooms.length} помещ., {project.recognition.openings.windows} окон, {project.recognition.openings.doors} дверей; масштаб — {({ dimensions: 'по размерам на чертеже', area: 'по площади из брифа', typical: 'оценён по типовым дверям (±20 %), уточните площадь в брифе', assumed: 'условный, проверьте' } as const)[project.recognition.scale.method]}.
+          План прочитан автоматически: {project.recognition.rooms.length} помещ., {project.recognition.openings.windows} окон, {project.recognition.openings.doors} дверей; масштаб — {({ dimensions: 'по размерам на чертеже', area: 'по площади квартиры', typical: 'прикинут по дверям — при необходимости подправьте ползунком', assumed: 'прикинут приблизительно — подправьте ползунком' } as const)[project.recognition.scale.method]}.
           {' '}Если стена, дверь или комната определена неверно — <button className="btn ghost sm" onClick={back}>поправьте план</button> и пересоберите варианты.
         </div>
       )}
+      {project.planImage && <ScalePanel busy={busy} onApplied={() => setRebuild((n) => n + 1)} />}
       <RoomsPanel onChanged={build} busy={busy} />
       {rejected.length > 0 && (
         <div className="notice">
@@ -313,5 +318,33 @@ function RoomsPanel({ onChanged, busy }: { onChanged: () => void; busy: boolean 
         </div>
       )}
     </details>
+  );
+}
+
+/** «Растянуть» план: если мебель выглядит слишком крупной или мелкой относительно плана. */
+function ScalePanel({ onApplied, busy }: { onApplied: () => void; busy: boolean }) {
+  const { update } = useStore();
+  const [pct, setPct] = useState(100);
+  const apply = () => {
+    const f = pct / 100;
+    update((p) => {
+      const g2 = { ...scaleGeometry(p.geometry, f), calibration: p.geometry.calibration ? { ...p.geometry.calibration, mmPerUnit: p.geometry.calibration.mmPerUnit * f, method: 'manual' as const } : null };
+      return { ...p, geometry: { ...g2, approvedHash: geometryHash(g2) }, planImage: p.planImage && { ...p.planImage, widthMm: p.planImage.widthMm * f, heightMm: p.planImage.heightMm * f } };
+    });
+    setPct(100);
+    onApplied();
+  };
+  return (
+    <div className="card" style={{ marginTop: 14, padding: 14 }}>
+      <div className="actions" style={{ marginTop: 0 }}>
+        <label className="check-inline" style={{ flex: '1 1 320px' }}>
+          Размер квартиры относительно мебели
+          <input type="range" min={60} max={160} step={5} value={pct} onChange={(e) => setPct(Number(e.target.value))} style={{ flex: 1 }} />
+          <b style={{ minWidth: 48 }}>{pct}%</b>
+        </label>
+        <button className="btn sm" disabled={busy || pct === 100} onClick={apply}>Применить и пересобрать</button>
+      </div>
+      <p className="muted small" style={{ margin: '6px 0 0' }}>Мебель кажется слишком крупной — увеличьте процент, слишком мелкой — уменьшите.</p>
+    </div>
   );
 }
