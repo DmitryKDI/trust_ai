@@ -2,6 +2,7 @@
 import * as pdfjs from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { parseOperatorList, type OpsCodes, type PageVectors } from './vectors';
+import { textBoxes, type RawTextItem, type TextBox } from './text';
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -83,4 +84,63 @@ export async function renderImage(blob: Blob): Promise<RenderedPage> {
   img.src = url;
   await img.decode();
   return { width: img.naturalWidth, height: img.naturalHeight, imageUrl: url, pxPerUnit: 1, vectors: null };
+}
+
+export interface RecognitionSource {
+  rgba: Uint8ClampedArray;
+  w: number;
+  h: number;
+  /** Пикселей распознавания на единицу листа (подложки). */
+  pxPerUnit: number;
+  pxPerPaperMm: number;
+  vectors: PageVectors | null;
+  texts: TextBox[];
+}
+
+/** Растр страницы для распознавания: PDF — 200 dpi, плюс векторы и текст; картинка — как скан. */
+export async function renderForRecognition(blob: Blob, mime: string, pageNo: number): Promise<RecognitionSource> {
+  if (mime === 'application/pdf') {
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) }).promise;
+    try {
+      const page = await doc.getPage(pageNo);
+      const ppu = 200 / 72;
+      const vp1 = page.getViewport({ scale: 1 });
+      const vp = page.getViewport({ scale: ppu });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.floor(vp.width);
+      canvas.height = Math.floor(vp.height);
+      const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvas, canvasContext: ctx, viewport: vp }).promise;
+      const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const ol = await page.getOperatorList();
+      const vectors = parseOperatorList(ol.fnArray, ol.argsArray as unknown[][], OPS, vp1.transform as never, vp1.width, vp1.height);
+      const tc = await page.getTextContent();
+      const texts = textBoxes(tc.items as RawTextItem[], vp1.transform);
+      return { rgba: img.data, w: img.width, h: img.height, pxPerUnit: ppu, pxPerPaperMm: 200 / 25.4, vectors, texts };
+    } finally {
+      await doc.destroy();
+    }
+  }
+  const url = URL.createObjectURL(blob);
+  try {
+    const im = new Image();
+    im.src = url;
+    await im.decode();
+    // Не больше 4000 px по длинной стороне; единица листа — пиксель исходной картинки.
+    const s = Math.min(1, 4000 / Math.max(im.naturalWidth, im.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(im.naturalWidth * s);
+    canvas.height = Math.round(im.naturalHeight * s);
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(im, 0, 0, canvas.width, canvas.height);
+    const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    // Разрешение скана неизвестно: считаем, что длинная сторона — лист А4 (297 мм).
+    return { rgba: img.data, w: img.width, h: img.height, pxPerUnit: s, pxPerPaperMm: Math.max(canvas.width, canvas.height) / 297, vectors: null, texts: [] };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }

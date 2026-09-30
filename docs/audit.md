@@ -85,8 +85,8 @@
 
 ## 8. Git
 
-Репозиторий: ветка `main`, удалённый — `github.com/DmitryKDI/trust_ai` (**публичный**). Поэтому в репозиторий не попадают: все `*.pdf`, каталог `data/` (страницы, разметка, отчёты по кейсам), `tmp/`, `output/`, `assets/`, `trust-remont-prototype.html`, сторонние `.agents/`, ключи, `.env`, логи, `node_modules`, сборка.
-Файл ТЗ (`CLAUDE_CODE_TZ_Trust_Remont.md`) содержит фамилии клиентов и адрес ЖК, поэтому хранится только локально (`.gitignore`). Кейсы в документации обезличены (`pilot-r`, `ever`, `republic`, `deferred-d`, `deferred-m`).
+Репозиторий: ветка `main`, удалённый — `github.com/DmitryKDI/trust_ai` (приватный с 30.09.2026). В репозиторий не попадают: все `*.pdf`, каталог `data/` (страницы, разметка, отчёты по кейсам), `tmp/`, `output/`, `assets/`, `trust-remont-prototype.html`, сторонние `.agents/`, ключи, `.env`, логи, `node_modules`, сборка.
+Кейсы в документации обезличены (`pilot-r`, `ever`, `republic`, `deferred-d`, `deferred-m`).
 
 ## 9. Что нужно от владельца
 

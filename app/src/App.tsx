@@ -41,7 +41,7 @@ export function App() {
 
 function Workspace({ onClose }: { onClose: () => void }) {
   const { project, saving } = useStore();
-  const [step, setStep] = useState(() => (project.documents.length ? (project.geometry.rooms.length ? 3 : 1) : 0));
+  const [step, setStep] = useState(() => (project.variants.length ? 4 : project.documents.length ? 1 : 0));
   const [rulesOpen, setRulesOpen] = useState(false);
   const g = project.geometry;
   const approvedVariant = project.variants.find((v) => v.id === project.selectedVariantId && v.approved);
@@ -77,7 +77,7 @@ function Workspace({ onClose }: { onClose: () => void }) {
           </div>
         </div>
         {step === 0 && <ProjectScreen next={() => go(1)} />}
-        {step === 1 && <UploadScreen next={() => go(2)} />}
+        {step === 1 && <UploadScreen next={() => go(2)} toVariants={() => go(4)} toMarkup={() => go(3)} />}
         {step === 2 && <BriefScreen next={() => go(3)} />}
         {step === 3 && <MarkupScreen next={() => go(4)} />}
         {step === 4 && <VariantsScreen next={() => go(5)} back={() => go(3)} />}

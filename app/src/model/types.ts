@@ -75,6 +75,8 @@ export interface Calibration {
   p2: Pt;
   mm: number;
   mmPerUnit: number;
+  /** Как получен масштаб: вручную, по размерным числам чертежа, по площади из брифа, условно. */
+  method?: 'manual' | 'dimensions' | 'area' | 'typical' | 'assumed';
 }
 
 export interface PlanGeometry {
@@ -223,4 +225,6 @@ export interface Project {
   /** Заметки сравнения с эталонным решением дизайнера (внутренние). */
   referenceNotes: string;
   referencePage: number | null;
+  /** Отчёт автоматического чтения плана (что найдено, как определён масштаб). */
+  recognition?: import('../recognize/index').RecognizeReport;
 }

@@ -1,11 +1,11 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState, type PointerEvent as RPE } from 'react';
-import type { FurnitureItem, FurnitureType, Rot, Variant } from '../model/types';
+import type { FurnitureItem, FurnitureType, RoomType, Rot, Variant } from '../model/types';
 import { uid } from '../model/defaults';
 import { useStore } from '../state/store';
 import { useSourcePage } from '../state/useSource';
 import { PlanView, planBounds } from '../plan/PlanView';
 import { CATALOG, DINING_PRESETS, kitchenModules } from '../furniture/catalog';
-import { geometryHash } from '../geometry/plan';
+import { geometryHash, roomArea } from '../geometry/plan';
 import { centroid, pointInPolygon } from '../geometry/poly';
 import { validate } from '../validate/validator';
 import { explain, isReady, type Rejected } from '../layout/variants';
@@ -55,13 +55,20 @@ export function VariantsScreen({ next, back }: { next: () => void; back: () => v
     <div className="view">
       <div className="eyebrow">Шаг 5 · варианты</div>
       <h1 className="heading">Варианты расстановки</h1>
-      <p className="lead">Один утверждённый контур, разные приоритеты. Каждый вариант проверен на коллизии, двери, окна, проходы и доступ к мебели. Мебель можно двигать — проверка пересчитывается сразу.</p>
+      <p className="lead">Варианты под бриф клиента на одном плане. Каждый проверен на проходы, двери, окна и доступ к мебели. Мебель можно двигать мышью — проверка пересчитывается сразу.</p>
       <div className="actions" style={{ marginTop: 0 }}>
         <button className="btn" onClick={build} disabled={busy}>{busy ? <><span className="spinner" />Подбираю варианты…</> : project.variants.length ? 'Пересобрать варианты' : 'Построить варианты'}</button>
         {stale && <span className="badge warn">Геометрия изменилась — варианты устарели</span>}
         {project.variants.length > 0 && <span className="muted small">Готовых к показу: {ready.length} из {project.variants.length}</span>}
       </div>
       {err && <div className="notice err">Ошибка сборки: {err}</div>}
+      {project.recognition && (
+        <div className="notice">
+          План прочитан автоматически: {project.recognition.rooms.length} помещ., {project.recognition.openings.windows} окон, {project.recognition.openings.doors} дверей; масштаб — {({ dimensions: 'по размерам на чертеже', area: 'по площади из брифа', typical: 'оценён по типовым дверям (±20 %), уточните площадь в брифе', assumed: 'условный, проверьте' } as const)[project.recognition.scale.method]}.
+          {' '}Если стена, дверь или комната определена неверно — <button className="btn ghost sm" onClick={back}>поправьте план</button> и пересоберите варианты.
+        </div>
+      )}
+      <RoomsPanel onChanged={build} busy={busy} />
       {rejected.length > 0 && (
         <div className="notice">
           <strong>Показано меньше трёх готовых вариантов:</strong>
@@ -260,5 +267,46 @@ function ReferenceCompare({ v }: { v: Variant }) {
         <textarea value={project.referenceNotes} onChange={(e) => update((p) => ({ ...p, referenceNotes: e.target.value }))} placeholder="Совпало: … Отличается: … Почему: …" style={{ minHeight: 110 }} />
       </label>
     </section>
+  );
+}
+
+const ROOM_TYPES: [RoomType, string][] = [
+  ['kitchen-living', 'Кухня-гостиная'], ['kitchen', 'Кухня'], ['living', 'Гостиная'], ['bedroom', 'Спальня'], ['kids', 'Детская'],
+  ['bath', 'Ванная / санузел'], ['wc', 'Туалет'], ['hall', 'Прихожая'], ['corridor', 'Коридор'], ['storage', 'Кладовая / гардероб'], ['balcony', 'Балкон / лоджия'], ['other', 'Другое'],
+];
+
+/** Назначение комнат: одним кликом поправить то, что программа угадала неверно, и пересобрать варианты. */
+function RoomsPanel({ onChanged, busy }: { onChanged: () => void; busy: boolean }) {
+  const { project, update } = useStore();
+  const g = project.geometry;
+  const [dirty, setDirty] = useState(false);
+  if (!g.rooms.length) return null;
+  const setType = (id: string, type: RoomType) => {
+    update((p) => {
+      const rooms = p.geometry.rooms.map((r) => (r.id === id ? { ...r, type, name: ROOM_TYPES.find((x) => x[0] === type)![1].split(' / ')[0], verifiedByManager: true } : r));
+      const geometry = { ...p.geometry, rooms };
+      return { ...p, geometry: { ...geometry, approvedHash: geometryHash(geometry) } };
+    });
+    setDirty(true);
+  };
+  return (
+    <details className="card" style={{ marginTop: 14 }} open={dirty}>
+      <summary style={{ margin: 0 }}>Комнаты ({g.rooms.length}) — проверьте назначение</summary>
+      <div className="fields" style={{ marginTop: 12 }}>
+        {g.rooms.map((r) => (
+          <label className="field" key={r.id}>
+            <span>{r.name} · {(roomArea(r.polygon) / 1e6).toFixed(1).replace('.', ',')} м²</span>
+            <select value={r.type} onChange={(e) => setType(r.id, e.target.value as RoomType)}>
+              {ROOM_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </label>
+        ))}
+      </div>
+      {dirty && (
+        <div className="actions">
+          <button className="btn" disabled={busy} onClick={() => { setDirty(false); onChanged(); }}>Пересобрать варианты с новыми назначениями</button>
+        </div>
+      )}
+    </details>
   );
 }

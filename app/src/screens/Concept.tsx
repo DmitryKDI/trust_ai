@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ConceptReference } from '../model/types';
 import { uid } from '../model/defaults';
 import { useStore } from '../state/store';
@@ -11,11 +11,25 @@ export function ConceptScreen({ next }: { next: () => void }) {
   const set = (p: Partial<typeof c>) => update((x) => ({ ...x, concept: { ...x.concept, ...p } }));
   const [newRef, setNewRef] = useState({ caption: '', sourceName: '', kind: 'reference' as ConceptReference['kind'] });
 
-  const addImage = (f: File | undefined) => {
+  // Вставка изображения из буфера обмена (Ctrl+V) — как референс.
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const t = e.target as HTMLElement;
+      if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') return;
+      const f = [...(e.clipboardData?.items ?? [])].find((i) => i.type.startsWith('image/'))?.getAsFile();
+      if (!f) return;
+      e.preventDefault();
+      addImage(f, { caption: newRef.caption || 'Изображение из буфера', sourceName: newRef.sourceName || 'вставлено из буфера' });
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  });
+
+  const addImage = (f: File | undefined, over?: { caption: string; sourceName: string }) => {
     if (!f) return;
     if (f.size > 3 * 1024 * 1024) { alert('Изображение больше 3 МБ — уменьшите его.'); return; }
     const r = new FileReader();
-    r.onload = () => set({ references: [...c.references, { id: uid('ref'), url: String(r.result), caption: newRef.caption || f.name, sourceName: newRef.sourceName || 'не указан', sourceUrl: '', kind: newRef.kind }] });
+    r.onload = () => set({ references: [...c.references, { id: uid('ref'), url: String(r.result), caption: over?.caption ?? (newRef.caption || f.name), sourceName: over?.sourceName ?? (newRef.sourceName || 'не указан'), sourceUrl: '', kind: newRef.kind }] });
     r.readAsDataURL(f);
   };
 
@@ -75,6 +89,7 @@ export function ConceptScreen({ next }: { next: () => void }) {
           </div>
         )}
         {c.references.length < 2 && <div className="notice">Добавьте хотя бы два изображения.</div>}
+        <p className="muted small">Картинку можно вставить из буфера обмена: Ctrl+V.</p>
       </section>
       <div className="actions"><button className="btn" onClick={next} disabled={!v}>К странице клиента</button></div>
     </div>
