@@ -1,0 +1,21 @@
+[
+  {
+    "id": "pilot-r",
+    "title": "Пилот R",
+    "docs": [
+      {
+        "match": "<часть имени PDF с обмером>",
+        "pages": {
+          "1": "measured",
+          "4": "layout"
+        }
+      },
+      {
+        "match": "<часть имени PDF с эталоном>",
+        "pages": {
+          "1": "reference"
+        }
+      }
+    ]
+  }
+]
