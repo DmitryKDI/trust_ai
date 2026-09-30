@@ -1,0 +1,50 @@
+# --- Клиентские материалы: не коммитить (ТЗ §3) ---
+*.pdf
+*.PDF
+data/
+data/cases/**/*.png
+data/cases/**/*.jpg
+renders/
+screenshots-private/
+
+# Собранный автономный файл со встроенными изображениями — не исходник
+trust-remont-prototype.html
+
+# Рабочие и выходные папки заказчика
+tmp/
+output/
+# Бренд-референсы (логотип, QR с личными контактами) — не публиковать без разрешения
+assets/
+
+# Сторонние скиллы — не наш код
+.agents/
+
+# --- Ключи, секреты, логи ---
+.env
+.env.*
+*.key
+*.pem
+secrets*
+*.log
+logs/
+
+# --- Сборка и зависимости ---
+node_modules/
+dist-app/
+coverage/
+playwright-report/
+test-results/
+.vite/
+
+# --- Прочее ---
+.DS_Store
+Thumbs.db
+*.tmp
+
+# Сборка приложения
+app/dist/
+
+# ТЗ содержит имена клиентов и адрес — только локально (репозиторий публичный)
+CLAUDE_CODE_TZ_Trust_Remont.md
+# Идентификатор хостинга прототипа
+prototype/.openai/
