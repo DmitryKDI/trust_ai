@@ -165,6 +165,13 @@ function quickPlanCore(inp: QuickInput): QuickResult {
     labels = lab;
     exteriorIds = new Set(comps.filter(isOutside).map((c) => c.id));
     seedCount = comps.length;
+    // Поле у края картинки — всегда «улица», даже если оно слишком узкое для затравки
+    // (после обрезки до плана): иначе комната со входной дверью заливает поле через вход,
+    // касается края и целиком пропадает как «снаружи».
+    const edgeId = comps.length + 1;
+    for (let x = 0; x < w; x++) for (const y of [0, h - 1]) if (free.d[y * w + x] && !labels[y * w + x]) labels[y * w + x] = edgeId;
+    for (let y = 0; y < h; y++) for (const x of [0, w - 1]) if (free.d[y * w + x] && !labels[y * w + x]) labels[y * w + x] = edgeId;
+    exteriorIds.add(edgeId);
     grow(labels, free.d, w, h);
     // «Снаружи» уточняем по итоговым областям (затравка после открытия могла не дойти до рамки).
     for (const [id, b] of labelBoxes(labels, w)) if (isOutside(b)) exteriorIds.add(id);
@@ -223,8 +230,12 @@ function quickPlanCore(inp: QuickInput): QuickResult {
   const k = mmPerPx * inp.pxPerUnit; // мм на единицу листа
   const openings: Opening[] = [];
   const doorOf = new Map<string, Opening>();
+  const roomSet = new Set(roomIds);
+  const isRoom = (l: number) => roomSet.has(l), okSide = (l: number) => isRoom(l) || exteriorIds.has(l);
   for (const [key, c] of contacts) {
     const [la, lb] = key.split(':').map(Number);
+    // Проём соединяет помещение с помещением или с улицей; карманы между линиями не в счёт.
+    if (!(isRoom(la) || isRoom(lb)) || !okSide(la) || !okSide(lb)) continue;
     const x0 = Math.min(...c.xs), x1 = Math.max(...c.xs), y0 = Math.min(...c.ys), y1 = Math.max(...c.ys);
     const horiz = x1 - x0 >= y1 - y0; // линия контакта горизонтальна → проём в горизонтальной «стене»
     const len = (horiz ? x1 - x0 : y1 - y0) * mmPerPx;
@@ -237,6 +248,85 @@ function quickPlanCore(inp: QuickInput): QuickResult {
     const o: Opening = { id: uid('d'), type: 'door', a, b, thickness: 120, hinge: 'a', swing: 1, isEntrance: exteriorIds.has(la) || exteriorIds.has(lb), sillHeight: null, ...prov(inp.page) };
     doorOf.set(key, o);
     openings.push(o);
+  }
+
+  // 4б. Проёмы, перечёркнутые тонкой линией. На БТИ дверь — разрыв в стене с тонкой чертой
+  // (иногда с дугой); черта примыкает к стенам и «запечатывает» проём, поэтому выше он не виден.
+  // Ищем разрывы в толстых стенах: метки растут сквозь тонкие линии, но не сквозь стены.
+  // Стена — это заливка: берём её цвет из середины толстых стен. Цветная заливка (розовые стены
+  // техплана) отличает стену от белого проёма с тонкими чертами даже там, где по толщине их
+  // не различить; в остальных случаях отсекаем тонкие линии по толщине.
+  const walls = newBin(w, h);
+  for (let i = 0; i < n; i++) walls.d[i] = free.d[i] ? 0 : 1;
+  const coreW = erode(walls, Math.max(3, Math.round(0.2 * pxPerM)));
+  const hist = [new Uint32Array(256), new Uint32Array(256), new Uint32Array(256)];
+  let coreN = 0;
+  for (let i = 0, p = 0; i < n; i++, p += 4) if (coreW.d[i]) { hist[0][rgba[p]]++; hist[1][rgba[p + 1]]++; hist[2][rgba[p + 2]]++; coreN++; }
+  const med = (hh: Uint32Array) => { let t = 0; for (let v = 0; v < 256; v++) { t += hh[v]; if (t >= coreN / 2) return v; } return 0; };
+  const WC = [med(hist[0]), med(hist[1]), med(hist[2])];
+  const chroma = Math.max(...WC) - Math.min(...WC);
+  const kThin = Math.max(3, Math.round(0.08 * pxPerM));
+  let thickWalls = openBin(walls, kThin);
+  // Только явно цветная заливка (серый медианный цвет бывает и у двойных чёрных линий после JPEG).
+  if (coreN >= 50 && chroma > 30) {
+    thickWalls = newBin(w, h);
+    // Достаточно «оттенка» стены: в тонких перегородках после JPEG заливка бледнеет.
+    const top = WC.indexOf(Math.max(...WC)), low = WC.indexOf(Math.min(...WC));
+    for (let i = 0, p = 0; i < n; i++, p += 4) thickWalls.d[i] = rgba[p + top] - rgba[p + low] >= 0.3 * chroma ? 1 : 0;
+  }
+  const passable = new Uint8Array(n);
+  for (let i = 0; i < n; i++) passable[i] = thickWalls.d[i] ? 0 : 1;
+  const through = labels.slice();
+  grow(through, passable, w, h);
+  const gapOpenings: { o: Opening; key: string; outside: boolean }[] = [];
+  for (const [key, c] of contactsOf(through, w, h)) {
+    const [la, lb] = key.split(':').map(Number);
+    if (!(isRoom(la) || isRoom(lb)) || !okSide(la) || !okSide(lb)) continue;
+    // Без Math.max(...xs): на крупных сканах контакт — десятки тысяч точек.
+    let ax0 = Infinity, ax1 = -Infinity, ay0 = Infinity, ay1 = -Infinity;
+    for (let i = 0; i < c.xs.length; i++) { ax0 = Math.min(ax0, c.xs[i]); ax1 = Math.max(ax1, c.xs[i]); ay0 = Math.min(ay0, c.ys[i]); ay1 = Math.max(ay1, c.ys[i]); }
+    const horiz = ax1 - ax0 >= ay1 - ay0;
+    // Точки контакта → отрезки вдоль стены (разрыв больше 0,3 м — следующий проём).
+    const along = c.xs.map((x, i) => (horiz ? x : c.ys[i])).sort((a, b) => a - b);
+    const across = c.xs.map((x, i) => (horiz ? c.ys[i] : x));
+    const mid = [...across].sort((a, b) => a - b)[Math.floor(across.length / 2)];
+    // Контакт «размазан» поперёк (двойные тонкие стены, скошенные области) — это не проём.
+    // Черта поперёк проёма даёт немного точек в стороне — допускаем до 20 %.
+    if (across.filter((v) => Math.abs(v - mid) > 0.3 * pxPerM).length > 0.2 * across.length) continue;
+    let s0 = along[0];
+    for (let i = 1; i <= along.length; i++) {
+      if (i < along.length && along[i] - along[i - 1] <= 0.3 * pxPerM) continue;
+      const e0 = along[i - 1], len = (e0 - s0) * mmPerPx;
+      // Проём ограничен стенами-«косяками» с обеих сторон (в пределах ~25 см по оси стены).
+      // Без этого вдоль пунктирных или тонких перегородок получается цепочка ложных дверей.
+      const jamb = (from: number, dir: 1 | -1) => {
+        const r = Math.max(2, Math.round(0.25 * pxPerM));
+        for (let t = 1; t <= r; t++)
+          for (let q = -r; q <= r; q++) {
+            const u = from + dir * t, v = Math.round(mid) + q;
+            const x = horiz ? u : v, y = horiz ? v : u;
+            if (x >= 0 && y >= 0 && x < w && y < h && thickWalls.d[y * w + x]) return true;
+          }
+        return false;
+      };
+      if (len >= 450 && len <= 2400 && jamb(s0, -1) && jamb(e0, 1)) {
+        const a: Pt = horiz ? { x: U(s0) * k, y: U(mid) * k } : { x: U(mid) * k, y: U(s0) * k };
+        const b: Pt = horiz ? { x: U(e0) * k, y: U(mid) * k } : { x: U(mid) * k, y: U(e0) * k };
+        const outside = exteriorIds.has(la) || exteriorIds.has(lb);
+        // Уже найденный выше проём между теми же помещениями — не дублируем.
+        const cm = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        const dup = openings.some((o) => Math.hypot((o.a.x + o.b.x) / 2 - cm.x, (o.a.y + o.b.y) / 2 - cm.y) < 600);
+        if (!dup) {
+          const o: Opening = { id: uid('d'), type: 'door', a, b, thickness: 120, hinge: 'a', swing: 1, isEntrance: outside, sillHeight: null, ...prov(inp.page) };
+          gapOpenings.push({ o, key: `${key}:${gapOpenings.length}`, outside });
+        }
+      }
+      if (i < along.length) s0 = along[i];
+    }
+  }
+  for (const g of gapOpenings) {
+    openings.push(g.o);
+    if (!g.outside) doorOf.set(g.key, g.o);
   }
 
   // 5. Полигоны помещений (мм).
@@ -297,10 +387,36 @@ function quickPlanCore(inp: QuickInput): QuickResult {
       }
     }
   }
-  // Лишние «входы»: оставляем один — ближе всего к типовой ширине двери.
+  // Разрывы наружной стены: там, где уже найдено окно, — это окно; широкие (> 1,2 м) — тоже окна.
+  const asWindow: { o: Opening; win: Opening }[] = [];
+  for (const g of gapOpenings) {
+    if (!g.outside) continue;
+    const o = g.o, cm = { x: (o.a.x + o.b.x) / 2, y: (o.a.y + o.b.y) / 2 };
+    const near = openings.find((x) => x.type === 'window' && Math.hypot((x.a.x + x.b.x) / 2 - cm.x, (x.a.y + x.b.y) / 2 - cm.y) < 800);
+    if (near) { openings.splice(openings.indexOf(o), 1); asWindow.push({ o, win: near }); }
+    else if (Math.hypot(o.b.x - o.a.x, o.b.y - o.a.y) > 1200) { o.type = 'window'; o.isEntrance = false; o.thickness = BAND_MM; o.id = uid('o'); }
+  }
+  // Лишние «входы»: оставляем один — ближе всего к типовой ширине двери; остальные разрывы
+  // наружной стены — окна.
   const ent = openings.filter((o) => o.isEntrance);
   ent.sort((x, y) => Math.abs(Math.hypot(x.b.x - x.a.x, x.b.y - x.a.y) - 900) - Math.abs(Math.hypot(y.b.x - y.a.x, y.b.y - y.a.y) - 900));
-  ent.slice(1).forEach((o) => openings.splice(openings.indexOf(o), 1));
+  ent.slice(1).forEach((o) => {
+    if (gapOpenings.some((g) => g.o === o)) { o.type = 'window'; o.isEntrance = false; o.thickness = BAND_MM; o.id = uid('o'); }
+    else openings.splice(openings.indexOf(o), 1);
+  });
+  // Входа нет, но есть разрыв наружной стены шириной с дверь, принятый за окно (черты по граням
+  // проёма похожи на остекление): считаем входом его.
+  if (!ent.length) {
+    const cand = asWindow
+      .map((x) => ({ ...x, len: Math.hypot(x.o.b.x - x.o.a.x, x.o.b.y - x.o.a.y) }))
+      .filter((x) => x.len >= 700 && x.len <= 1100)
+      .sort((a, b) => Math.abs(a.len - 900) - Math.abs(b.len - 900))[0];
+    if (cand) {
+      openings.splice(openings.indexOf(cand.win), 1);
+      openings.push(cand.o);
+      ent.push(cand.o);
+    }
+  }
   const entrance = ent[0] ?? null;
   if (!entrance) notes.push('Вход не найден — отметьте входную дверь, если нужна проверка проходов.');
   // Двери открываются в меньшее помещение.
@@ -323,7 +439,8 @@ function quickPlanCore(inp: QuickInput): QuickResult {
   // Без площади масштаб прикидываем по дверным проёмам: межкомнатная дверь ≈ 0,85 м.
   let scaleMethod: 'area' | 'doors' | 'assumed' = areaM2 ? 'area' : 'assumed';
   if (!areaM2) {
-    const ws = openings.filter((o) => !o.isEntrance).map((o) => Math.hypot(o.b.x - o.a.x, o.b.y - o.a.y)).filter((x) => x >= 450 && x < 1600).sort((a, b) => a - b);
+    // Проёмы, найденные по разрывам стен (4б), в оценку масштаба не берём: ширина там грубее.
+    const ws = openings.filter((o) => !o.isEntrance && !gapOpenings.some((g) => g.o === o)).map((o) => Math.hypot(o.b.x - o.a.x, o.b.y - o.a.y)).filter((x) => x >= 450 && x < 1600).sort((a, b) => a - b);
     if (ws.length >= 2) {
       const f = 850 / ws[Math.floor(ws.length / 2)];
       if (f > 0.5 && f < 2) {
