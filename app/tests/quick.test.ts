@@ -10,8 +10,9 @@ import { resolveRules } from '../src/rules/rules';
 import { brief } from './fixtures/synthetic';
 
 const root = path.resolve(__dirname, '../../data/cases');
-const CASES = [
+const CASES: { id: string; file: string; area: number | null }[] = [
   { id: 'user-bti', file: 'bti.jpg', area: 82 },
+  { id: 'bti-page', file: 'page.png', area: null },
   { id: 'republic', file: 'репаблик-p3.png', area: 48.4 },
   { id: 'pilot-r', file: 'полуальбом-p1.png', area: 75.2 },
   { id: 'ever', file: 'жк-p3.png', area: 88.7 },

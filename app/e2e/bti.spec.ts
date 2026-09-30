@@ -43,3 +43,17 @@ test('скан БТИ: построить варианты одной кнопк
   await page.locator('.detail').screenshot({ path: path.join(out, 'bti-detail-scaled.png') });
 
 });
+
+const page2 = path.resolve(__dirname, '../../data/cases/bti-page/pages/page.png');
+test('страница БТИ с рамкой: план находится внутри листа', async ({ page }, info) => {
+  test.skip(info.project.name !== 'desktop' || !fs.existsSync(page2));
+  await page.goto('/');
+  await page.getByPlaceholder(/Например/).fill('Страница БТИ');
+  await page.getByRole('button', { name: 'Создать проект' }).click();
+  await page.getByRole('button', { name: /Загрузка/ }).click();
+  await page.locator('input[type=file]').first().setInputFiles(page2);
+  await page.getByRole('button', { name: 'Построить варианты' }).click();
+  await expect(page.locator('.vcard').first()).toBeVisible({ timeout: 120_000 });
+  await page.waitForTimeout(1000);
+  await page.locator('.detail').screenshot({ path: path.join(out, 'bti-page-detail.png') });
+});

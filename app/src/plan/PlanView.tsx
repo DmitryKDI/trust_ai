@@ -1,7 +1,7 @@
 // SVG-чертёж плана в мм: стены, проёмы, помещения, инженерные элементы и мебель.
 import { forwardRef, useMemo, type PointerEvent as RPE, type ReactNode } from 'react';
 import type { FurnitureItem, Issue, PlanGeometry, PlanStyle, Pt } from '../model/types';
-import { doorSwingPolygon, roomArea, wallPolygon, wallsGeom } from '../geometry/plan';
+import { doorSwingPolygon, roomArea, roomWallBand, wallPolygon, wallsGeom } from '../geometry/plan';
 import { bbox, labelPoint, type BBox, type Geom } from '../geometry/poly';
 import { FurnitureSymbol, type FurniturePalette } from '../furniture/Symbol';
 
@@ -10,8 +10,9 @@ export const PALETTES: Record<PlanStyle, PlanPalette> = {
   graphite: { wall: '#434b4e', floor: '#ffffff', sheet: '#fbfbf9', text: '#5b676b', furniture: { stroke: '#8a9492', fill: '#e4e8e6', light: '#f7f8f6', dark: '#b3bcb9' } },
   warm: { wall: '#5a3d31', floor: '#fffaf3', sheet: '#f6efe6', text: '#6b4f41', furniture: { stroke: '#9c7f6a', fill: '#eadfd2', light: '#fbf6ef', dark: '#c9b39f' } },
   blueprint: { wall: '#1f4e79', floor: '#f4f9fd', sheet: '#e8f1f9', text: '#1f4e79', furniture: { stroke: '#3b6e99', fill: '#dbe8f4', light: '#f5f9fd', dark: '#a9c4dd' } },
+  original: { wall: '#434b4e', floor: '#ffffff', sheet: '#ffffff', text: '#5b676b', furniture: { stroke: '#8a9492', fill: '#e4e8e6', light: '#f7f8f6', dark: '#b3bcb9' } },
 };
-export const STYLE_NAMES: Record<PlanStyle, string> = { graphite: 'Графит', warm: 'Тёплый', blueprint: 'Чертёж' };
+export const STYLE_NAMES: Record<PlanStyle, string> = { graphite: 'Графит', warm: 'Тёплый', blueprint: 'Чертёж', original: 'Оригинал БТИ' };
 
 export type PlanMode = 'editor' | 'variant' | 'thumb' | 'client';
 
@@ -61,7 +62,9 @@ export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanVi
   const wetRooms = g.rooms.filter((r) => r.type === 'bath' || r.type === 'wc');
   const pal = PALETTES[p.planStyle ?? 'graphite'];
   // Исходный план БТИ (картинка) показывается как есть — поверх только мебель.
-  const orig = !!p.wallImage && !editor;
+  const orig = !!p.wallImage && !editor && p.planStyle === 'original';
+  // План без векторных стен (скан): аккуратные стены — ровная полоса вокруг найденных помещений.
+  const band = useMemo(() => (!editor && !g.walls.length && g.rooms.length ? roomWallBand(g, 200) : null), [g, editor]);
 
   return (
     <svg
@@ -78,7 +81,7 @@ export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanVi
         <pattern id="hatch" width="120" height="120" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><path d="M0 0V120" stroke="#c9cfcf" strokeWidth="14" /></pattern>
       </defs>
       <rect x={vb.minX} y={vb.minY} width={vb.maxX - vb.minX} height={vb.maxY - vb.minY} fill={editor ? '#f4f4f1' : pal.sheet} />
-      {p.wallImage && !editor && <image href={p.wallImage.url} x={0} y={0} width={p.wallImage.widthMm} height={p.wallImage.heightMm} preserveAspectRatio="none" />}
+      {orig && <image href={p.wallImage!.url} x={0} y={0} width={p.wallImage!.widthMm} height={p.wallImage!.heightMm} preserveAspectRatio="none" />}
       {underlay && <image href={underlay.url} x={0} y={0} width={underlay.widthMm} height={underlay.heightMm} opacity={underlay.opacity} preserveAspectRatio="none" />}
 
       {/* Помещения */}
@@ -103,7 +106,7 @@ export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanVi
               stroke={w.id === selectedId ? '#d2691e' : w.verifiedByManager ? '#2f3739' : '#c9a36b'} strokeWidth={w.id === selectedId ? 2.5 : 1}
               strokeDasharray={w.verifiedByManager ? undefined : '6 4'} vectorEffect="non-scaling-stroke" onClick={() => p.onElementClick?.('wall', w.id)} />
           ))
-        : !orig && <path d={geomPath(walls)} fill={pal.wall} fillRule="evenodd" />}
+        : !orig && <path d={geomPath(band ?? walls)} fill={pal.wall} fillRule="evenodd" />}
 
       {/* Проёмы */}
       {!orig && g.openings.map((o) => {

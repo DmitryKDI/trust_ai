@@ -87,10 +87,38 @@ function labelPolygon(labels: Int32Array, w: number, h: number, id: number, cell
   const u = union(...rects.map((r) => toGeom(r)));
   if (!u.length) return null;
   const biggest = u.reduce((a, p) => (polyArea(fromRing(p[0])) > polyArea(fromRing(a[0])) ? p : a));
-  return simplifyRing(fromRing(biggest[0]), cell * 0.5);
+  return straighten(simplifyRing(fromRing(biggest[0]), cell * 0.5), cell * 3);
 }
 
-export function quickPlan(inp: QuickInput): QuickResult {
+/**
+ * Выпрямление прямоугольного контура: убирает «ступеньки» короче minStep —
+ * короткий отрезок между двумя параллельными соседями сдвигается на линию более длинного соседа.
+ */
+function straighten(poly: Pt[], minStep: number): Pt[] {
+  let pts = poly.map((q) => ({ ...q }));
+  for (let guard = 0; guard < 200 && pts.length > 4; guard++) {
+    let changed = false;
+    const n = pts.length;
+    for (let i = 0; i < n; i++) {
+      const a = pts[(i - 1 + n) % n], b = pts[i], c = pts[(i + 1) % n], d = pts[(i + 2) % n];
+      const lbc = Math.hypot(c.x - b.x, c.y - b.y);
+      if (lbc >= minStep) continue;
+      const abH = Math.abs(a.y - b.y) < 1e-6, cdH = Math.abs(c.y - d.y) < 1e-6;
+      const abV = Math.abs(a.x - b.x) < 1e-6, cdV = Math.abs(c.x - d.x) < 1e-6;
+      if (!((abH && cdH) || (abV && cdV))) continue;
+      const lab = Math.hypot(b.x - a.x, b.y - a.y), lcd = Math.hypot(d.x - c.x, d.y - c.y);
+      if (abH) { if (lab >= lcd) { c.y = b.y; d.y = b.y; } else { a.y = c.y; b.y = c.y; } }
+      else { if (lab >= lcd) { c.x = b.x; d.x = b.x; } else { a.x = c.x; b.x = c.x; } }
+      pts = simplifyRing(pts, 0.5);
+      changed = true;
+      break;
+    }
+    if (!changed) break;
+  }
+  return pts;
+}
+
+function quickPlanCore(inp: QuickInput): QuickResult {
   const t0 = Date.now();
   const { w, h, rgba } = inp;
   const n = w * h;
@@ -214,12 +242,60 @@ export function quickPlan(inp: QuickInput): QuickResult {
   // 5. Полигоны помещений (мм).
   const cell = Math.max(2, Math.round(pxPerM * 0.1));
   const rooms: Room[] = [];
+  const pxPolys: { id: number; poly: Pt[] }[] = [];
   for (const id of roomIds) {
     const poly = labelPolygon(labels, w, h, id, cell);
     if (!poly || poly.length < 4) continue;
     const mm = poly.map((q) => ({ x: Math.round(U(q.x) * k), y: Math.round(U(q.y) * k) }));
     if (polyArea(mm) / 1e6 < 1) continue;
     rooms.push({ id: `r${id}`, name: 'Помещение', type: 'other', polygon: mm, ...prov(inp.page) });
+    pxPolys.push({ id, poly });
+  }
+
+  // Окна: на наружной стороне комнаты в полосе стены — несколько параллельных тонких линий
+  // (остекление), в отличие от сплошной или двухконтурной стены.
+  const bandPx = Math.max(4, Math.round(0.6 * pxPerM));
+  const BAND_MM = 300;
+  for (const { id, poly } of pxPolys) {
+    for (let i = 0; i < poly.length; i++) {
+      const p = poly[i], q = poly[(i + 1) % poly.length];
+      const L = Math.hypot(q.x - p.x, q.y - p.y);
+      if (L < 0.6 * pxPerM) continue;
+      const dir = { x: (q.x - p.x) / L, y: (q.y - p.y) / L };
+      let out = { x: dir.y, y: -dir.x };
+      const mx = Math.round((p.x + q.x) / 2 + out.x * 3), my = Math.round((p.y + q.y) / 2 + out.y * 3);
+      if (mx >= 0 && my >= 0 && mx < w && my < h && labels[my * w + mx] === id) out = { x: -out.x, y: -out.y };
+      const flags: boolean[] = [];
+      for (let t = 0; t < L; t++) {
+        const px = p.x + dir.x * t, py = p.y + dir.y * t;
+        let trans = 0, prev = -1, paper = 0, other = false, n2 = 0;
+        for (let d = 2; d <= bandPx; d++) {
+          const x = Math.round(px + out.x * d), y = Math.round(py + out.y * d);
+          if (x < 0 || y < 0 || x >= w || y >= h) break;
+          const l = labels[y * w + x];
+          if (l > 0 && l !== id && !exteriorIds.has(l)) { other = true; break; }
+          const v = barrier.d[y * w + x];
+          if (prev >= 0 && v !== prev) trans++;
+          prev = v; n2++;
+          if (!v) paper++;
+        }
+        flags.push(!other && trans >= 5 && paper / Math.max(1, n2) > 0.2 && paper / Math.max(1, n2) < 0.9);
+      }
+      // Серии «оконных» столбцов (с разрывами до 3 px), длиной 0,6–3,2 м.
+      let s0 = -1, gapN = 0;
+      const flush = (s: number, e: number) => {
+        const len = (e - s) / pxPerM;
+        if (len < 0.6 || len > 3.2) return;
+        const off = (BAND_MM / 2) / mmPerPx;
+        const A = { x: p.x + dir.x * s + out.x * off, y: p.y + dir.y * s + out.y * off };
+        const B = { x: p.x + dir.x * e + out.x * off, y: p.y + dir.y * e + out.y * off };
+        openings.push({ id: uid('o'), type: 'window', a: { x: Math.round(U(A.x) * k), y: Math.round(U(A.y) * k) }, b: { x: Math.round(U(B.x) * k), y: Math.round(U(B.y) * k) }, thickness: BAND_MM, hinge: 'a', swing: 1, isEntrance: false, sillHeight: null, ...prov(inp.page) });
+      };
+      for (let t = 0; t <= flags.length; t++) {
+        if (t < flags.length && flags[t]) { if (s0 < 0) s0 = t; gapN = 0; }
+        else if (s0 >= 0) { if (++gapN > 3 || t === flags.length) { flush(s0, t - gapN); s0 = -1; gapN = 0; } }
+      }
+    }
   }
   // Лишние «входы»: оставляем один — ближе всего к типовой ширине двери.
   const ent = openings.filter((o) => o.isEntrance);
@@ -343,4 +419,56 @@ function contactsOf(labels: Int32Array, w: number, h: number): Map<string, { xs:
       }
     }
   return contacts;
+}
+
+/**
+ * Сначала находим сам план на странице: самую крупную «толстую» сеть стен
+ * (тонкие линии рамки листа, шапки, штампа и текста так не выглядят), обрезаем до неё,
+ * затем ищем комнаты только внутри плана.
+ */
+export function quickPlan(inp: QuickInput): QuickResult {
+  const { w, h, rgba } = inp;
+  const n = w * h;
+  const P = paperColor(rgba, n);
+  const ink = newBin(w, h);
+  for (let i = 0, p = 0; i < n; i++, p += 4) {
+    if (Math.max(Math.abs(rgba[p] - P[0]), Math.abs(rgba[p + 1] - P[1]), Math.abs(rgba[p + 2] - P[2])) > 32) ink.d[i] = 1;
+  }
+  const kt = Math.max(2, Math.round(Math.min(w, h) / 300));
+  // Закрытие заполняет штриховку и серую заливку стен, открытие убирает тонкие линии рамки и текста.
+  const thick = dilate(erode(erode(dilate(ink, kt), kt), kt), kt);
+  const { comps } = components(thick);
+  if (!comps.length) return quickPlanCore(inp);
+  // Крупнейшая толстая компонента + всё толстое рядом с ней (стены, разорванные проёмами).
+  const main = comps.reduce((a, c) => (c.area > a.area ? c : a));
+  const mw = main.x1 - main.x0, mh = main.y1 - main.y0;
+  // Слишком мелкая «толстая» находка (значок легенды, штамп) — не план: не обрезаем.
+  if (mw < w * 0.12 || mh < h * 0.08) return quickPlanCore(inp);
+  let x0 = main.x0, y0 = main.y0, x1 = main.x1, y1 = main.y1;
+  for (const c of comps) {
+    if (c.area < main.area * 0.02) continue;
+    const near = c.x1 >= x0 - mw * 0.3 && c.x0 <= x1 + mw * 0.3 && c.y1 >= y0 - mh * 0.3 && c.y0 <= y1 + mh * 0.3;
+    if (near) { x0 = Math.min(x0, c.x0); y0 = Math.min(y0, c.y0); x1 = Math.max(x1, c.x1); y1 = Math.max(y1, c.y1); }
+  }
+  const padX = Math.round((x1 - x0) * 0.06) + 4, padY = Math.round((y1 - y0) * 0.06) + 4;
+  const cx0 = Math.max(0, x0 - padX), cy0 = Math.max(0, y0 - padY), cx1 = Math.min(w - 1, x1 + padX), cy1 = Math.min(h - 1, y1 + padY);
+  const cw = cx1 - cx0 + 1, ch = cy1 - cy0 + 1;
+  // План занимает почти всю картинку — обрезать нечего.
+  if (cw * ch > n * 0.85) return quickPlanCore(inp);
+  const crop = new Uint8ClampedArray(cw * ch * 4);
+  for (let y = 0; y < ch; y++) crop.set(rgba.subarray(((cy0 + y) * w + cx0) * 4, ((cy0 + y) * w + cx0 + cw) * 4), y * cw * 4);
+  const r = quickPlanCore({ ...inp, rgba: crop, w: cw, h: ch });
+  const k = r.geometry.calibration!.mmPerUnit;
+  const ox = (cx0 / inp.pxPerUnit) * k, oy = (cy0 / inp.pxPerUnit) * k;
+  const sh = (q: Pt): Pt => ({ x: Math.round(q.x + ox), y: Math.round(q.y + oy) });
+  const g = r.geometry;
+  return {
+    ...r,
+    geometry: {
+      ...g,
+      rooms: g.rooms.map((x) => ({ ...x, polygon: x.polygon.map(sh) })),
+      openings: g.openings.map((o) => ({ ...o, a: sh(o.a), b: sh(o.b) })),
+      fixed: g.fixed.map((f) => ({ ...f, polygon: f.polygon.map(sh) })),
+    },
+  };
 }

@@ -233,4 +233,4 @@ export interface Project {
   planStyle?: PlanStyle;
 }
 
-export type PlanStyle = 'graphite' | 'warm' | 'blueprint';
+export type PlanStyle = 'graphite' | 'warm' | 'blueprint' | 'original';

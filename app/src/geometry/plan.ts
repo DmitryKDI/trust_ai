@@ -114,3 +114,26 @@ export function geometryHash(g: PlanGeometry): string {
   for (const s of parts) for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
   return (h >>> 0).toString(16).padStart(8, '0');
 }
+
+/**
+ * Стены для плана без векторных стен (скан): полоса толщиной t вокруг помещений,
+ * пустоты между помещениями залиты, дверные и оконные проёмы вырезаны.
+ */
+export function roomWallBand(g: PlanGeometry, t = 300): Geom {
+  if (!g.rooms.length) return [];
+  const parts: Geom[] = [];
+  for (const r of g.rooms) {
+    parts.push(toGeom(r.polygon));
+    const n = r.polygon.length;
+    for (let i = 0; i < n; i++) {
+      const a = r.polygon[i], b = r.polygon[(i + 1) % n];
+      parts.push(toGeom(segmentRect(a, b, 2 * t)));
+      parts.push(toGeom([{ x: a.x - t, y: a.y - t }, { x: a.x + t, y: a.y - t }, { x: a.x + t, y: a.y + t }, { x: a.x - t, y: a.y + t }]));
+    }
+  }
+  const dil = union(...parts);
+  const filled: Geom = dil.map((poly) => [poly[0]]); // без внутренних пустот
+  const interior = union(...g.rooms.map((r) => toGeom(r.polygon)));
+  const cuts = union(...g.openings.map((o) => toGeom(segmentRect(o.a, o.b, o.type === 'door' ? 2 * t + 200 : o.thickness + 2))));
+  return difference(filled, interior, cuts);
+}

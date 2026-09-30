@@ -384,7 +384,8 @@ export function assignTypes(g: PlanGeometry, texts: TextBox[], k: number, entran
   for (const r of free.filter((x) => x.type === 'other' && windowsOf(x) === 0)) {
     const bb = bboxOf(r.polygon);
     const elongated = Math.max(bb.w, bb.h) / Math.min(bb.w, bb.h) > 2.2;
-    if (!windowsKnown && !elongated) continue;
+    // Большие комнаты без найденного окна не считаем кладовой: окна на сканах находятся не всегда.
+    if ((!windowsKnown && !elongated) || (!elongated && area(r) >= 8)) continue;
     r.type = elongated || area(r) < 8 ? 'corridor' : 'storage';
     r.name = r.type === 'corridor' ? 'Коридор' : 'Кладовая';
   }

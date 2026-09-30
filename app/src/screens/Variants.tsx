@@ -62,11 +62,11 @@ export function VariantsScreen({ next, back }: { next: () => void; back: () => v
       <p className="lead">Варианты под бриф клиента на одном плане. Каждый проверен на проходы, двери, окна и доступ к мебели. Мебель можно двигать мышью — проверка пересчитывается сразу.</p>
       <div className="actions" style={{ marginTop: 0 }}>
         <button className="btn" onClick={build} disabled={busy}>{busy ? <><span className="spinner" />Подбираю варианты…</> : project.variants.length ? 'Пересобрать варианты' : 'Построить варианты'}</button>
-        {!project.planImage && <label className="check-inline">Стиль плана
+        <label className="check-inline">Стиль плана
           <select value={project.planStyle ?? 'graphite'} onChange={(e) => update((p) => ({ ...p, planStyle: e.target.value as PlanStyle }))} style={{ width: 'auto' }}>
-            {(Object.keys(STYLE_NAMES) as PlanStyle[]).map((k) => <option key={k} value={k}>{STYLE_NAMES[k]}</option>)}
+            {(Object.keys(STYLE_NAMES) as PlanStyle[]).filter((k) => k !== 'original' || project.planImage).map((k) => <option key={k} value={k}>{STYLE_NAMES[k]}</option>)}
           </select>
-        </label>}
+        </label>
         {stale && <span className="badge warn">Геометрия изменилась — варианты устарели</span>}
         {project.variants.length > 0 && <span className="muted small">Готовых к показу: {ready.length} из {project.variants.length}</span>}
       </div>
