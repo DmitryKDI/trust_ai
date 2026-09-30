@@ -1,6 +1,6 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState, type PointerEvent as RPE } from 'react';
 import { scaleGeometry } from '../editor/ops';
-import type { FurnitureItem, FurnitureType, PlanStyle, RoomType, Rot, Variant } from '../model/types';
+import type { FurnitureItem, FurnitureType, PlanStyle, Project, RoomType, Rot, Variant } from '../model/types';
 import { uid } from '../model/defaults';
 import { useStore } from '../state/store';
 import { useSourcePage } from '../state/useSource';
@@ -78,7 +78,7 @@ export function VariantsScreen({ next, back }: { next: () => void; back: () => v
         </div>
       )}
       {project.planImage && <ScalePanel busy={busy} onApplied={() => setRebuild((n) => n + 1)} />}
-      <RoomsPanel onChanged={build} busy={busy} />
+      <RoomsPanel onChanged={build} busy={busy} onRescaled={() => setRebuild((n) => n + 1)} />
       {rejected.length > 0 && (
         <div className="notice">
           <strong>Показано меньше трёх готовых вариантов:</strong>
@@ -286,10 +286,22 @@ const ROOM_TYPES: [RoomType, string][] = [
 ];
 
 /** Назначение комнат: одним кликом поправить то, что программа угадала неверно, и пересобрать варианты. */
-function RoomsPanel({ onChanged, busy }: { onChanged: () => void; busy: boolean }) {
+function RoomsPanel({ onChanged, busy, onRescaled }: { onChanged: () => void; busy: boolean; onRescaled: () => void }) {
   const { project, update } = useStore();
   const g = project.geometry;
   const [dirty, setDirty] = useState(false);
+  const [areaInput, setAreaInput] = useState<{ id: string; v: string } | null>(null);
+  // Площадь комнаты с плана БТИ → масштаб всего плана.
+  const applyArea = () => {
+    if (!areaInput) return;
+    const r = g.rooms.find((x) => x.id === areaInput.id);
+    const want = Number(areaInput.v.replace(',', '.'));
+    if (!r || !(want > 0.5)) return;
+    const f = Math.sqrt((want * 1e6) / roomArea(r.polygon));
+    update((p) => scaleProject(p, f));
+    setAreaInput(null);
+    onRescaled();
+  };
   if (!g.rooms.length) return null;
   const setType = (id: string, type: RoomType) => {
     update((p) => {
@@ -301,7 +313,8 @@ function RoomsPanel({ onChanged, busy }: { onChanged: () => void; busy: boolean 
   };
   return (
     <details className="card" style={{ marginTop: 14 }} open={dirty}>
-      <summary style={{ margin: 0 }}>Комнаты ({g.rooms.length}) — проверьте назначение</summary>
+      <summary style={{ margin: 0 }}>Комнаты ({g.rooms.length}) — назначение и масштаб</summary>
+      <p className="muted small">Впишите площадь любой комнаты с плана БТИ (например, 23,1) — весь план растянется по ней, и мебель встанет в реальном размере.</p>
       <div className="fields" style={{ marginTop: 12 }}>
         {g.rooms.map((r) => (
           <label className="field" key={r.id}>
@@ -309,9 +322,14 @@ function RoomsPanel({ onChanged, busy }: { onChanged: () => void; busy: boolean 
             <select value={r.type} onChange={(e) => setType(r.id, e.target.value as RoomType)}>
               {ROOM_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
+            <input inputMode="decimal" placeholder="площадь по плану, м²" value={areaInput?.id === r.id ? areaInput.v : ''}
+              onChange={(e) => setAreaInput({ id: r.id, v: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && applyArea()} />
           </label>
         ))}
       </div>
+      {areaInput?.v && (
+        <div className="actions"><button className="btn" disabled={busy} onClick={applyArea}>Растянуть план по площади и пересобрать</button></div>
+      )}
       {dirty && (
         <div className="actions">
           <button className="btn" disabled={busy} onClick={() => { setDirty(false); onChanged(); }}>Пересобрать варианты с новыми назначениями</button>
@@ -326,11 +344,7 @@ function ScalePanel({ onApplied, busy }: { onApplied: () => void; busy: boolean 
   const { update } = useStore();
   const [pct, setPct] = useState(100);
   const apply = () => {
-    const f = pct / 100;
-    update((p) => {
-      const g2 = { ...scaleGeometry(p.geometry, f), calibration: p.geometry.calibration ? { ...p.geometry.calibration, mmPerUnit: p.geometry.calibration.mmPerUnit * f, method: 'manual' as const } : null };
-      return { ...p, geometry: { ...g2, approvedHash: geometryHash(g2) }, planImage: p.planImage && { ...p.planImage, widthMm: p.planImage.widthMm * f, heightMm: p.planImage.heightMm * f } };
-    });
+    update((p) => scaleProject(p, pct / 100));
     setPct(100);
     onApplied();
   };
@@ -347,4 +361,11 @@ function ScalePanel({ onApplied, busy }: { onApplied: () => void; busy: boolean 
       <p className="muted small" style={{ margin: '6px 0 0' }}>Мебель кажется слишком крупной — увеличьте процент, слишком мелкой — уменьшите.</p>
     </div>
   );
+}
+
+/** Растянуть план (геометрию и картинку) в f раз по линейным размерам. */
+function scaleProject(p: Project, f: number): Project {
+  const g2 = { ...scaleGeometry(p.geometry, f), calibration: p.geometry.calibration ? { ...p.geometry.calibration, mmPerUnit: p.geometry.calibration.mmPerUnit * f, method: 'manual' as const } : null };
+  // Старые варианты построены на прежнем масштабе — убираем, их пересоберут.
+  return { ...p, geometry: { ...g2, approvedHash: geometryHash(g2) }, planImage: p.planImage && { ...p.planImage, widthMm: p.planImage.widthMm * f, heightMm: p.planImage.heightMm * f }, variants: [], selectedVariantId: null, review: null };
 }

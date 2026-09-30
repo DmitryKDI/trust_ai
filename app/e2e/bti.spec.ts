@@ -32,5 +32,14 @@ test('скан БТИ: построить варианты одной кнопк
   fs.writeFileSync(path.join(out, 'bti-browser.json'), JSON.stringify(rec, null, 1));
   await page.screenshot({ path: path.join(out, 'bti-variants.png'), fullPage: true });
   await page.locator('.detail').screenshot({ path: path.join(out, 'bti-detail.png') });
+  // Площадь гостиной с плана БТИ (23,1) → весь план растягивается по ней.
+  await page.locator('details.card summary').click();
+  const living = page.locator('details.card label.field').filter({ has: page.locator('span', { hasText: /^Гостиная/ }) }).locator('input');
+  await living.fill('23,1');
+  await page.getByRole('button', { name: 'Растянуть план по площади и пересобрать' }).click();
+  await expect(page.locator('details.card label.field').filter({ has: page.locator('span', { hasText: /^Гостиная/ }) })).toContainText('23,1 м²', { timeout: 60_000 });
+  await expect(page.locator('.vcard').first()).toBeVisible({ timeout: 90_000 });
+  await page.waitForTimeout(1500);
+  await page.locator('.detail').screenshot({ path: path.join(out, 'bti-detail-scaled.png') });
 
 });
