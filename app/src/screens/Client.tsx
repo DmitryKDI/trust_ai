@@ -48,7 +48,7 @@ export function ClientScreen({ back }: { back: () => void }) {
             </div>
           </div>
           <div className="planbox">
-            <PlanView g={g} items={v.items} mode="client" viewBox={vb} ariaLabel={`Предварительная схема: ${v.title}`}><ScaleBar vb={vb} /></PlanView>
+            <PlanView g={g} items={v.items} mode="client" viewBox={vb} wallImage={project.planImage} planStyle={project.planStyle} ariaLabel={`Предварительная схема: ${v.title}`}><ScaleBar vb={vb} /></PlanView>
           </div>
         </header>
         <div className="clientbody">

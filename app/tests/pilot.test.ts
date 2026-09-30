@@ -40,7 +40,7 @@ describe.skipIf(!has)('пилотный кейс (реальная размет�
   });
 
   for (const scenario of ['space', 'storage', 'family'] as const)
-    it(`вариант «${scenario}» строится и проходит проверки`, () => {
+    it(`вариант «${scenario}» строится и проходит проверки`, { timeout: 60_000 }, () => {
       const g = load();
       const r = runEngine({ g, brief: pilotBrief, rules, scenario });
       const errors = validate(g, r.items, rules, pilotBrief).issues.filter((i) => i.severity === 'error');

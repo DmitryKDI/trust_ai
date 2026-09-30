@@ -278,7 +278,7 @@ export function MarkupScreen({ next }: { next: () => void }) {
     const unverified = [...g.walls, ...g.openings, ...g.fixed, ...g.rooms, ...g.wetZones].filter((x) => !x.verifiedByManager).length;
     const list: { ok: boolean; text: string }[] = [
       { ok: !!g.calibration, text: g.calibration ? `Масштаб: ${g.calibration.mm} мм по двум точкам` : 'Масштаб не откалиброван — размеры неточные' },
-      { ok: g.walls.length > 0, text: `Стены: ${g.walls.length}` },
+      { ok: g.walls.length > 0 || g.rooms.length > 0, text: g.walls.length ? `Стены: ${g.walls.length}` : 'Стены — по изображению плана' },
       { ok: g.openings.some((o) => o.isEntrance), text: g.openings.some((o) => o.isEntrance) ? 'Входная дверь отмечена' : 'Отметьте входную дверь (выберите дверь → «Входная»)' },
       { ok: g.rooms.length > 0, text: `Помещения: ${g.rooms.length}${g.rooms.some((r) => r.type === 'other') ? ' (есть без типа)' : ''}` },
       { ok: !!v && v.unreachableRooms.length === 0, text: v ? (v.unreachableRooms.length ? `Недостижимы от входа: ${v.unreachableRooms.map((id) => g.rooms.find((r) => r.id === id)?.name).join(', ')}` : 'Все помещения достижимы от входа') : 'Проходимость — после разметки помещений' },

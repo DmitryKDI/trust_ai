@@ -1,9 +1,9 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState, type PointerEvent as RPE } from 'react';
-import type { FurnitureItem, FurnitureType, RoomType, Rot, Variant } from '../model/types';
+import type { FurnitureItem, FurnitureType, PlanStyle, RoomType, Rot, Variant } from '../model/types';
 import { uid } from '../model/defaults';
 import { useStore } from '../state/store';
 import { useSourcePage } from '../state/useSource';
-import { PlanView, planBounds } from '../plan/PlanView';
+import { PlanView, planBounds, STYLE_NAMES } from '../plan/PlanView';
 import { CATALOG, DINING_PRESETS, kitchenModules } from '../furniture/catalog';
 import { geometryHash, roomArea } from '../geometry/plan';
 import { centroid, pointInPolygon } from '../geometry/poly';
@@ -58,6 +58,11 @@ export function VariantsScreen({ next, back }: { next: () => void; back: () => v
       <p className="lead">Варианты под бриф клиента на одном плане. Каждый проверен на проходы, двери, окна и доступ к мебели. Мебель можно двигать мышью — проверка пересчитывается сразу.</p>
       <div className="actions" style={{ marginTop: 0 }}>
         <button className="btn" onClick={build} disabled={busy}>{busy ? <><span className="spinner" />Подбираю варианты…</> : project.variants.length ? 'Пересобрать варианты' : 'Построить варианты'}</button>
+        <label className="check-inline">Стиль плана
+          <select value={project.planStyle ?? 'graphite'} onChange={(e) => update((p) => ({ ...p, planStyle: e.target.value as PlanStyle }))} style={{ width: 'auto' }}>
+            {(Object.keys(STYLE_NAMES) as PlanStyle[]).map((k) => <option key={k} value={k}>{STYLE_NAMES[k]}</option>)}
+          </select>
+        </label>
         {stale && <span className="badge warn">Геометрия изменилась — варианты устарели</span>}
         {project.variants.length > 0 && <span className="muted small">Готовых к показу: {ready.length} из {project.variants.length}</span>}
       </div>
@@ -80,7 +85,7 @@ export function VariantsScreen({ next, back }: { next: () => void; back: () => v
         <div className="variants" style={{ marginTop: 18 }}>
           {project.variants.map((v, i) => (
             <article key={v.id} className={`card vcard ${openId === v.id ? 'sel' : ''}`} onClick={() => setOpenId(v.id)}>
-              <div className="thumbwrap"><PlanView g={g} items={v.items} mode="thumb" ariaLabel={`Схема варианта «${v.title}»`} /></div>
+              <div className="thumbwrap"><PlanView g={g} items={v.items} mode="thumb" wallImage={project.planImage} planStyle={project.planStyle} ariaLabel={`Схема варианта «${v.title}»`} /></div>
               <div className="body">
                 <span className="eyebrow">Вариант {i + 1}{v.approved ? ' · утверждён' : ''}</span>
                 <h2>{v.title}</h2>
@@ -199,7 +204,7 @@ function VariantDetail({ v }: { v: Variant }) {
   return (
     <div className="detail">
       <div className="card" style={{ padding: 12 }}>
-        <PlanView ref={svgRef} g={g} items={items} issues={result.issues} mode="variant" selectedId={selId} viewBox={planBounds(g, 500)}
+        <PlanView ref={svgRef} g={g} items={items} issues={result.issues} mode="variant" wallImage={project.planImage} planStyle={project.planStyle} selectedId={selId} viewBox={planBounds(g, 500)}
           onItemPointerDown={onItemDown} svgProps={{ onPointerMove: onMove, onPointerUp: onUp, onPointerDown: () => setSelId(null) }} />
         <div className="actions" style={{ marginTop: 10 }}>
           <label className="field" style={{ minWidth: 200 }}><span className="hint">Добавить предмет</span>
@@ -260,7 +265,7 @@ function ReferenceCompare({ v }: { v: Variant }) {
       <h2>Сравнение с решением дизайнера <span className="badge">внутреннее</span></h2>
       <p className="muted small">Эталон не показывается клиенту. Запишите, что совпало, что отличается и почему.</p>
       <div className="compare">
-        <div><h3>Вариант «{v.title}»</h3><PlanView g={project.geometry} items={v.items} mode="variant" viewBox={planBounds(project.geometry, 400)} /></div>
+        <div><h3>Вариант «{v.title}»</h3><PlanView g={project.geometry} items={v.items} mode="variant" wallImage={project.planImage} planStyle={project.planStyle} viewBox={planBounds(project.geometry, 400)} /></div>
         <div><h3>Эталон, стр. {project.referencePage}</h3>{src.loading ? <p className="muted"><span className="spinner" />Загружаю…</p> : src.page ? <img src={src.page.imageUrl} alt="Эталонное решение дизайнера" /> : <p className="muted">{src.error ?? 'Выберите страницу эталона на шаге «Загрузка».'}</p>}</div>
       </div>
       <label className="field" style={{ marginTop: 12 }}>Разбор отличий

@@ -62,7 +62,7 @@ export function ConceptScreen({ next }: { next: () => void }) {
         </section>
         <section className="card">
           <h3>Выбранный вариант</h3>
-          {v ? <><PlanView g={project.geometry} items={v.items} mode="client" viewBox={planBounds(project.geometry, 400)} /><p className="muted small">{v.title}: {v.idea.toLowerCase()}.</p></> : <p className="muted">Сначала утвердите вариант.</p>}
+          {v ? <><PlanView g={project.geometry} items={v.items} mode="client" wallImage={project.planImage} planStyle={project.planStyle} viewBox={planBounds(project.geometry, 400)} /><p className="muted small">{v.title}: {v.idea.toLowerCase()}.</p></> : <p className="muted">Сначала утвердите вариант.</p>}
         </section>
       </div>
       <section className="card" style={{ marginTop: 18 }}>

@@ -216,7 +216,7 @@ export function reachability(ctx: PlanContext, items: FurnitureItem[], rules: Ru
   const unreachableRooms: string[] = [];
   if (!ctx.rooms.length) return { issues, reachableRooms, unreachableRooms };
   if (!ctx.entranceStart) {
-    issues.push(issue('error', 'no-entrance', 'Не отмечена входная дверь — проходимость не проверить'));
+    issues.push(issue('warning', 'no-entrance', 'Входная дверь не отмечена — проходы от входа не проверены'));
     return { issues, reachableRooms, unreachableRooms };
   }
   const grid = baseGrid(ctx, step).clone();

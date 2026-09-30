@@ -1,7 +1,7 @@
 // Предрасчёт статической части плана для быстрых проверок (кэшируется на версию геометрии).
 import type { Opening, PlanGeometry, Pt, Room } from '../model/types';
 import { doorSwingPolygon, geometryHash, interiorGeom, openingRect, wallsGeom } from '../geometry/plan';
-import { add, bbox, centroid, geomBBox, mul, norm, pointInGeom, segmentRect, toGeom, type BBox, type Geom } from '../geometry/poly';
+import { add, bbox, centroid, difference, geomBBox, mul, norm, pointInGeom, segmentRect, toGeom, union, type BBox, type Geom } from '../geometry/poly';
 import type { Rules } from '../rules/rules';
 
 export interface PlanContext {
@@ -52,7 +52,8 @@ export function planContext(g: PlanGeometry, rules: Rules): PlanContext {
   if (hit) return hit;
 
   const interior = interiorGeom(g);
-  const walls = wallsGeom(g);
+  // План без векторных стен (скан, картинка): стена — всё вокруг помещений, кроме дверных проёмов.
+  const walls = g.walls.length ? wallsGeom(g) : wallsFromRooms(g, interior);
   const ctx: PlanContext = {
     g,
     hash: geometryHash(g),
@@ -80,4 +81,13 @@ export function planContext(g: PlanGeometry, rules: Rules): PlanContext {
 export function roomOfPoint(ctx: PlanContext, p: Pt): Room | null {
   for (const r of ctx.rooms) if (pointInGeom(p, r.geom)) return r.room;
   return null;
+}
+
+function wallsFromRooms(g: PlanGeometry, interior: Geom): Geom {
+  if (!interior.length) return [];
+  const b = geomBBox(interior);
+  const pad = 600;
+  const frame = toGeom([{ x: b.minX - pad, y: b.minY - pad }, { x: b.maxX + pad, y: b.minY - pad }, { x: b.maxX + pad, y: b.maxY + pad }, { x: b.minX - pad, y: b.maxY + pad }]);
+  const doors = union(...g.openings.filter((o) => o.type === 'door').map((o) => toGeom(segmentRect(o.a, o.b, Math.max(o.thickness, 400)))));
+  return difference(frame, interior, doors);
 }

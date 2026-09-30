@@ -2,14 +2,13 @@
 // центр в (0,0), спинка на y = −d/2, фасад на y = +d/2.
 import type { FurnitureItem } from '../model/types';
 
-const S = '#8a9492'; // контур
-const F = '#e4e8e6'; // заливка корпуса
-const F2 = '#f7f8f6'; // светлые детали
-const D = '#b3bcb9'; // тёмные детали
-const line = { stroke: S, strokeWidth: 1, vectorEffect: 'non-scaling-stroke' as const, fill: 'none' };
-const body = { stroke: S, strokeWidth: 1, vectorEffect: 'non-scaling-stroke' as const, fill: F };
+export interface FurniturePalette { stroke: string; fill: string; light: string; dark: string }
+export const DEFAULT_FURNITURE: FurniturePalette = { stroke: '#8a9492', fill: '#e4e8e6', light: '#f7f8f6', dark: '#b3bcb9' };
 
-export function FurnitureSymbol({ it }: { it: FurnitureItem }) {
+export function FurnitureSymbol({ it, pal = DEFAULT_FURNITURE }: { it: FurnitureItem; pal?: FurniturePalette }) {
+  const S = pal.stroke, F = pal.fill, F2 = pal.light, D = pal.dark;
+  const line = { stroke: S, strokeWidth: 1, vectorEffect: 'non-scaling-stroke' as const, fill: 'none' };
+  const body = { stroke: S, strokeWidth: 1, vectorEffect: 'non-scaling-stroke' as const, fill: F };
   const { w, d } = it;
   const x0 = -w / 2, y0 = -d / 2;
   switch (it.type) {

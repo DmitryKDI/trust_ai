@@ -360,7 +360,7 @@ function doorArc(v: PageVectors | null | undefined, ink: Bin, a: Pt, b: Pt, t: n
   return best && best.score >= 0.6 ? { hinge: best.hinge, swing: best.swing } : null;
 }
 
-function assignTypes(g: PlanGeometry, texts: TextBox[], k: number, entrance: Opening | null, children: number): { rooms: Room[]; byLabel: Set<string> } {
+export function assignTypes(g: PlanGeometry, texts: TextBox[], k: number, entrance: Opening | null, children: number): { rooms: Room[]; byLabel: Set<string> } {
   const byLabel = new Set<string>();
   const rooms = g.rooms.map((r) => ({ ...r }));
   // Подписи внутри помещения
@@ -379,10 +379,13 @@ function assignTypes(g: PlanGeometry, texts: TextBox[], k: number, entrance: Ope
   // Мокрые зоны: небольшие помещения (< 6 м²); окна в них часто «находятся» ложно из-за трубопроводов на чертеже.
   const wet = free.filter((r) => r.type === 'other' && area(r) < 6).sort((a, b) => area(b) - area(a));
   wet.forEach((r, i) => { r.type = i === 0 ? 'bath' : 'wc'; r.name = i === 0 ? (wet.length === 1 ? 'Санузел' : 'Ванная') : 'С/у'; });
-  // Коридоры: без окон, вытянутые
+  // Коридоры: без окон, вытянутые. Если окна не определялись вовсе (скан) — только по форме.
+  const windowsKnown = g.openings.some((o) => o.type === 'window');
   for (const r of free.filter((x) => x.type === 'other' && windowsOf(x) === 0)) {
     const bb = bboxOf(r.polygon);
-    r.type = Math.max(bb.w, bb.h) / Math.min(bb.w, bb.h) > 2.2 || area(r) < 8 ? 'corridor' : 'storage';
+    const elongated = Math.max(bb.w, bb.h) / Math.min(bb.w, bb.h) > 2.2;
+    if (!windowsKnown && !elongated) continue;
+    r.type = elongated || area(r) < 8 ? 'corridor' : 'storage';
     r.name = r.type === 'corridor' ? 'Коридор' : 'Кладовая';
   }
   // Жилые с окнами

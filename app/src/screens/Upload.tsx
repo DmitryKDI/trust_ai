@@ -116,8 +116,8 @@ export function UploadScreen({ next, toVariants, toMarkup }: { next: () => void;
     try {
       setStage('Читаю план: стены, окна, двери, комнаты…');
       const area = Number(String(project.brief.area).replace(',', '.')) || null;
-      const { geometry, report } = await recognizeDocument(doc, g.sourcePage, { briefAreaM2: area, children: project.brief.children, fallbackK: provisionalScale(doc.mime) });
-      if (report.scale.method === 'assumed') {
+      const { geometry, report, planImage } = await recognizeDocument(doc, g.sourcePage, { briefAreaM2: area, children: project.brief.children, fallbackK: provisionalScale(doc.mime) });
+      if (report.scale.method === 'assumed' && !planImage) {
         setStage(null);
         setNeedArea(true);
         setErr('На плане не нашлось размеров, по которым определить масштаб. Впишите общую площадь квартиры (она указана на плане БТИ) и нажмите «Построить варианты» ещё раз.');
@@ -128,7 +128,7 @@ export function UploadScreen({ next, toVariants, toMarkup }: { next: () => void;
       auto.approvedHash = geometryHash(auto);
       setStage('Подбираю варианты расстановки…');
       const res = await runVariantsInWorker(auto, project.brief, project.ruleOverrides);
-      update((p) => ({ ...p, geometry: auto, variants: res.variants, selectedVariantId: null, review: null, recognition: report }));
+      update((p) => ({ ...p, geometry: auto, variants: res.variants, selectedVariantId: null, review: null, recognition: report, planImage: planImage ?? undefined }));
       setStage(null);
       if (!res.variants.some(isReady)) setErr('Варианты построены, но все требуют доработки — откройте их и подвиньте мебель или поправьте план.');
       toVariants();

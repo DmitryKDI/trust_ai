@@ -1,9 +1,17 @@
 // SVG-чертёж плана в мм: стены, проёмы, помещения, инженерные элементы и мебель.
 import { forwardRef, useMemo, type PointerEvent as RPE, type ReactNode } from 'react';
-import type { FurnitureItem, Issue, PlanGeometry, Pt } from '../model/types';
+import type { FurnitureItem, Issue, PlanGeometry, PlanStyle, Pt } from '../model/types';
 import { doorSwingPolygon, roomArea, wallPolygon, wallsGeom } from '../geometry/plan';
 import { bbox, labelPoint, type BBox, type Geom } from '../geometry/poly';
-import { FurnitureSymbol } from '../furniture/Symbol';
+import { FurnitureSymbol, type FurniturePalette } from '../furniture/Symbol';
+
+export interface PlanPalette { wall: string; floor: string; sheet: string; text: string; furniture: FurniturePalette }
+export const PALETTES: Record<PlanStyle, PlanPalette> = {
+  graphite: { wall: '#434b4e', floor: '#ffffff', sheet: '#fbfbf9', text: '#5b676b', furniture: { stroke: '#8a9492', fill: '#e4e8e6', light: '#f7f8f6', dark: '#b3bcb9' } },
+  warm: { wall: '#5a3d31', floor: '#fffaf3', sheet: '#f6efe6', text: '#6b4f41', furniture: { stroke: '#9c7f6a', fill: '#eadfd2', light: '#fbf6ef', dark: '#c9b39f' } },
+  blueprint: { wall: '#1f4e79', floor: '#f4f9fd', sheet: '#e8f1f9', text: '#1f4e79', furniture: { stroke: '#3b6e99', fill: '#dbe8f4', light: '#f5f9fd', dark: '#a9c4dd' } },
+};
+export const STYLE_NAMES: Record<PlanStyle, string> = { graphite: 'Графит', warm: 'Тёплый', blueprint: 'Чертёж' };
 
 export type PlanMode = 'editor' | 'variant' | 'thumb' | 'client';
 
@@ -23,6 +31,9 @@ export interface PlanViewProps {
   className?: string;
   ariaLabel?: string;
   svgProps?: React.SVGProps<SVGSVGElement>;
+  /** Стилизованные стены (маска картинки) — для планов без векторных стен. */
+  wallImage?: { url: string; widthMm: number; heightMm: number } | null;
+  planStyle?: PlanStyle;
 }
 
 export function geomPath(g: Geom): string {
@@ -48,6 +59,8 @@ export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanVi
   const editor = mode === 'editor';
   const fs = Math.max(120, (vb.maxX - vb.minX) / 90);
   const wetRooms = g.rooms.filter((r) => r.type === 'bath' || r.type === 'wc');
+  const pal = PALETTES[p.planStyle ?? 'graphite'];
+  const maskId = `wm${Math.round(vb.minX)}${Math.round(vb.maxY)}`;
 
   return (
     <svg
@@ -63,12 +76,12 @@ export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanVi
         <pattern id="tile" width="200" height="200" patternUnits="userSpaceOnUse"><rect width="200" height="200" fill="#eef3f4" /><path d="M0 0H200M0 0V200" stroke="#d5e0e2" strokeWidth="6" /></pattern>
         <pattern id="hatch" width="120" height="120" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><path d="M0 0V120" stroke="#c9cfcf" strokeWidth="14" /></pattern>
       </defs>
-      <rect x={vb.minX} y={vb.minY} width={vb.maxX - vb.minX} height={vb.maxY - vb.minY} fill={editor ? '#f4f4f1' : '#fbfbf9'} />
+      <rect x={vb.minX} y={vb.minY} width={vb.maxX - vb.minX} height={vb.maxY - vb.minY} fill={editor ? '#f4f4f1' : pal.sheet} />
       {underlay && <image href={underlay.url} x={0} y={0} width={underlay.widthMm} height={underlay.heightMm} opacity={underlay.opacity} preserveAspectRatio="none" />}
 
       {/* Помещения */}
       {g.rooms.map((r) => (
-        <path key={r.id} d={polyPath(r.polygon)} fill={r.type === 'balcony' ? '#f1f2ee' : editor ? 'rgba(255,255,255,.55)' : '#ffffff'}
+        <path key={r.id} d={polyPath(r.polygon)} fill={r.type === 'balcony' ? '#f1f2ee' : editor ? 'rgba(255,255,255,.55)' : pal.floor}
           stroke={editor ? (r.verifiedByManager ? '#9fb0a6' : '#c9a36b') : 'none'} strokeWidth={1} strokeDasharray={editor && !r.verifiedByManager ? '6 4' : undefined} vectorEffect="non-scaling-stroke"
           onClick={() => p.onElementClick?.('room', r.id)} />
       ))}
@@ -88,7 +101,15 @@ export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanVi
               stroke={w.id === selectedId ? '#d2691e' : w.verifiedByManager ? '#2f3739' : '#c9a36b'} strokeWidth={w.id === selectedId ? 2.5 : 1}
               strokeDasharray={w.verifiedByManager ? undefined : '6 4'} vectorEffect="non-scaling-stroke" onClick={() => p.onElementClick?.('wall', w.id)} />
           ))
-        : <path d={geomPath(walls)} fill="#434b4e" fillRule="evenodd" />}
+        : <path d={geomPath(walls)} fill={pal.wall} fillRule="evenodd" />}
+      {p.wallImage && !editor && (
+        <g pointerEvents="none">
+          <mask id={maskId} maskUnits="userSpaceOnUse" x={0} y={0} width={p.wallImage.widthMm} height={p.wallImage.heightMm}>
+            <image href={p.wallImage.url} x={0} y={0} width={p.wallImage.widthMm} height={p.wallImage.heightMm} preserveAspectRatio="none" />
+          </mask>
+          <rect x={0} y={0} width={p.wallImage.widthMm} height={p.wallImage.heightMm} fill={pal.wall} mask={`url(#${maskId})`} />
+        </g>
+      )}
 
       {/* Проёмы */}
       {g.openings.map((o) => {
@@ -120,7 +141,7 @@ export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanVi
         const c = labelPoint(r.polygon);
         return (
           <g key={'l' + r.id} pointerEvents="none" fontFamily="Manrope, Arial, sans-serif" textAnchor="middle">
-            <text x={c.x} y={c.y} fontSize={fs} fontWeight={700} fill="#5b676b" letterSpacing={fs * 0.04}>{r.name.toUpperCase()}</text>
+            <text x={c.x} y={c.y} fontSize={fs} fontWeight={700} fill={pal.text} letterSpacing={fs * 0.04}>{r.name.toUpperCase()}</text>
             <text x={c.x} y={c.y + fs * 1.25} fontSize={fs * 0.85} fill="#7e898c">{(roomArea(r.polygon) / 1e6).toFixed(1).replace('.', ',')} м²</text>
           </g>
         );
@@ -132,7 +153,7 @@ export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanVi
         return (
           <g key={it.id} transform={`translate(${it.x} ${it.y}) rotate(${it.rot})`} className={p.onItemPointerDown ? 'item-drag' : undefined}
             onPointerDown={p.onItemPointerDown ? (e) => p.onItemPointerDown!(e, it) : undefined}>
-            <FurnitureSymbol it={it} />
+            <FurnitureSymbol it={it} pal={pal.furniture} />
             {(err || warn || sel) && mode !== 'client' && (
               <rect x={-it.w / 2 - 25} y={-it.d / 2 - 25} width={it.w + 50} height={it.d + 50} rx={40} fill={err ? 'rgba(192,57,43,.08)' : 'none'}
                 stroke={err ? '#c0392b' : sel ? '#2f6f8f' : '#d39b2a'} strokeWidth={sel ? 2.4 : 1.8} strokeDasharray={sel && !err ? undefined : '6 4'} vectorEffect="non-scaling-stroke" />

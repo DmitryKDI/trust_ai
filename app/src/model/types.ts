@@ -227,4 +227,10 @@ export interface Project {
   referencePage: number | null;
   /** Отчёт автоматического чтения плана (что найдено, как определён масштаб). */
   recognition?: import('../recognize/index').RecognizeReport;
+  /** Стилизованные стены плана (сканы/картинки): маска и её размер в мм. */
+  planImage?: { url: string; widthMm: number; heightMm: number };
+  /** Стиль отображения плана. */
+  planStyle?: PlanStyle;
 }
+
+export type PlanStyle = 'graphite' | 'warm' | 'blueprint';
