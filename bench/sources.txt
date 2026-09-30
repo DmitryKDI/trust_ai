@@ -1,0 +1,32 @@
+# Планы для стенда (найдены в интернете, прислал пользователь). Формат: имя URL
+# Скачать: bash bench/fetch.sh
+web01 https://mostpr.ru/sites/default/files/inline/images/tekhpasport-bti-187.jpeg
+web02 https://mostpr.ru/sites/default/files/inline/images/bti-posle-pereplanirovki-179.jpeg
+web03 https://mostpr.ru/sites/default/files/inline-images/plan-i.jpg
+web04 https://cdn.riastatic.com/photosnew/dom/photo/prodaja-kvartira-chernovtsy-sheptitskogo-andreya-mitropolita-ulitsa__233366222xl.jpg
+web05 https://bigfoto.name/photo/uploads/posts/2023-03/1678438911_bigfoto-name-p-tipovoi-proekt-pereplanirovki-33.jpg
+web06 https://mostpr.ru/sites/default/files/inline/images/plan-i-ehksplikaciya-posle-remonta-088.jpeg
+web07 https://pereplan-one.ru/upload/2023/06-190523-arhivn-plan.jpg
+web08 https://dozvil.ua/uploads/steps/320/5bc59ec50924b.jpg
+web09 https://mostpr.ru/sites/default/files/inline/images/bti-kvartiry-posle-pereplanirovki-180.jpeg
+web10 https://pereplan-one.ru/upload/01-14-09-21-bti-novostr.jpg
+web11 https://apb1.ru/uploads/2014/06/p46-planirovka-razmery-01-rotated-e1685889666678.jpg
+web12 https://mostpr.ru/sites/default/files/inline/images/bti-dvushki-v-i-155m.jpeg
+web13 https://abrakadabra.fun/uploads/posts/2022-12/thumbs/1671665710_4-abrakadabra-fun-p-plan-odnokomnatnoi-kvartiri-s-razmerami-11.jpg
+web14 https://images.cdn-cian.ru/images/2875033379-1.jpg
+web15 https://st.hzcdn.com/fimgs/894185970541ee5c_4230-w618-h610-b1-p0--home-design.jpg
+web16 https://bigfoto.name/uploads/posts/2021-12/1638629901_67-bigfoto-name-p-osobennosti-kvartir-s-lineinoi-planirovkoi-69.jpg
+web17 https://content.cdn-cian.ru/realty/uploads/froala_editor/images/planirovka_2%402x.png
+web18 https://mostpr.ru/sites/default/files/inline/images/tekhpasport-do-pereplanirovki-137.jpeg
+web19 https://www.pereplanirovkamos.ru/sites/default/files/raboti-16-2.jpg
+web20 https://mostpr.ru/sites/default/files/inline-images/planirovka-do-remonta-204.jpg
+web21 https://mostpr.ru/sites/default/files/styles/620w/public/inline/images/bti-s-nesoglasovannoj-pereplanirovkoj-165_0.jpeg?itok=gCH0JE5m
+web22 https://bigfoto.name/photo/uploads/posts/2023-02/1676945161_bigfoto-name-p-obmerochnii-chertezh-kvartiri-59.jpg
+web23 https://cdn.riastatic.com/photosnew/dom/photo/prodaja-kvartira-kiev-staryy-kiev-reytarskaya-ulitsa__307563209xl.jpg
+web24 https://mostpr.ru/sites/default/files/inline/images/bti-posle-remonta-112.jpeg
+web25 https://mostpr.ru/sites/default/files/inline/images/bti-s-krasnymi-liniyami-176.jpeg
+web26 https://abrakadabra.fun/uploads/posts/2022-12/1671665771_27-abrakadabra-fun-p-plan-odnokomnatnoi-kvartiri-s-razmerami-49.jpg
+web27 https://cdn.riastatic.com/photosnew/dom/photo/prodaja-kvartira-kiev-pervomayskiy-massiv-karela-chapeka-yuliusa-fuchika-ulitsa__334305377xl.jpg
+web28 https://setam.net.ua/images/users/lcNovWUMdLsq9kYOy-LIRia9vbm9Xulq/2022/11/18/20221118111808-6718.jpg
+web29 https://apb1.ru/uploads/krasnye-linii-bti-003-scaled.jpg
+web30 https://www.pereplanirovkamos.ru/sites/default/files/poetazhnij-plan-i-eksplikaciya-kvartiry-2-1.jpg
