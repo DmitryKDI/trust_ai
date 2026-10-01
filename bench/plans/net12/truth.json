@@ -1,0 +1,14 @@
+{
+ "source": "открытые источники (архив пользователя, BTI_plan_12.jpg)",
+ "style": "МосгорБТИ 1:200, П-44",
+ "inputAreaM2": null,
+ "rooms": [
+  26.7,
+  11.2,
+  12.4
+ ],
+ "roomsComplete": false,
+ "doors": null,
+ "windows": null,
+ "entrance": true
+}

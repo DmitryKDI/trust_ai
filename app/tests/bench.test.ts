@@ -16,6 +16,8 @@ interface Truth {
   rooms: number[];
   /** false — перечислены не все помещения: лишние найденные не штрафуются. */
   roomsComplete: boolean;
+  /** Число помещений (без балконов и лоджий) — для планов без подписей площадей. */
+  roomCount?: number;
   doors: number | null;
   windows: number | null;
   entrance: boolean | null;
@@ -60,16 +62,21 @@ it('стенд: распознавание планов', { timeout: 600_000 }, 
     const doors = r.geometry.openings.filter((o) => o.type === 'door').length;
     const windows = r.geometry.openings.filter((o) => o.type === 'window').length;
     const m = matchRooms(truth.rooms, found);
-    // Помещения: полнота; при полном перечне — ещё и точность (лишние помещения).
-    const recall = m.hit / truth.rooms.length;
-    const precision = truth.roomsComplete ? m.hit / Math.max(1, found.length) : 1;
-    const parts: number[] = [precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0];
+    const parts: number[] = [];
+    if (truth.rooms.length) {
+      // Помещения: полнота; при полном перечне — ещё и точность (лишние помещения).
+      const recall = m.hit / truth.rooms.length;
+      const precision = truth.roomsComplete ? m.hit / Math.max(1, found.length) : 1;
+      parts.push(precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0);
+    }
+    if (truth.roomCount != null) parts.push(countScore(found.length, truth.roomCount));
     if (truth.doors != null) parts.push(countScore(doors, truth.doors));
     if (truth.windows != null) parts.push(countScore(windows, truth.windows));
     if (truth.entrance != null) parts.push(r.report.entrance === truth.entrance ? 1 : 0);
     const score = parts.reduce((a, b) => a + b, 0) / parts.length;
     scores.push(score);
-    rows.push(`| ${id} | ${(score * 100).toFixed(0)} | ${m.hit}/${truth.rooms.length}${truth.roomsComplete ? '' : '+'} (лишних ${m.extra}) | ${doors}${truth.doors != null ? '/' + truth.doors : ''} | ${windows}${truth.windows != null ? '/' + truth.windows : ''} | ${r.report.entrance ? 'да' : 'нет'}${truth.entrance != null ? (r.report.entrance === truth.entrance ? ' ✓' : ' ✗') : ''} | ${r.report.pxPerM.toFixed(0)} |`);
+    const roomsCell = truth.rooms.length ? `${m.hit}/${truth.rooms.length}${truth.roomsComplete ? '' : '+'} (лишних ${m.extra})` : `всего ${found.length}/${truth.roomCount}`;
+    rows.push(`| ${id} | ${(score * 100).toFixed(0)} | ${roomsCell} | ${doors}${truth.doors != null ? '/' + truth.doors : ''} | ${windows}${truth.windows != null ? '/' + truth.windows : ''} | ${r.report.entrance ? 'да' : 'нет'}${truth.entrance != null ? (r.report.entrance === truth.entrance ? ' ✓' : ' ✗') : ''} | ${r.report.pxPerM.toFixed(0)} |`);
   }
   if (!scores.length) return;
   const total = scores.reduce((a, b) => a + b, 0) / scores.length;
@@ -78,7 +85,7 @@ it('стенд: распознавание планов', { timeout: 600_000 }, 
     '',
     `Общий балл: **${(total * 100).toFixed(1)}** из 100 (планов: ${scores.length}).`,
     '',
-    'Помещения: найдено/в эталоне («+» — эталон неполный). Двери и окна: найдено/в эталоне.',
+    'Помещения: совпало по площади (±25 %)/в эталоне («+» — эталон неполный) или «всего найдено/должно быть». Двери и окна: найдено/в эталоне.',
     '',
     '| План | Балл | Помещения | Двери | Окна | Вход | px/м |',
     '|---|---|---|---|---|---|---|',

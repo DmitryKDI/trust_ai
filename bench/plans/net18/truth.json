@@ -1,0 +1,18 @@
+{
+ "source": "открытые источники (архив пользователя, BTI_plan_18.jpg)",
+ "style": "обмерный план дизайнера, серые стены",
+ "inputAreaM2": 38.61,
+ "rooms": [
+  21.2,
+  8.68,
+  4.63,
+  3.0,
+  1.1,
+  4.7,
+  3.25
+ ],
+ "roomsComplete": true,
+ "doors": null,
+ "windows": null,
+ "entrance": true
+}

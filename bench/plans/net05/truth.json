@@ -1,0 +1,15 @@
+{
+ "source": "открытые источники (архив пользователя, BTI_plan_05.jpg)",
+ "style": "МосгорБТИ 1:200, вертикальный, шапка",
+ "inputAreaM2": null,
+ "rooms": [
+  13.3,
+  14.3,
+  4.4,
+  14.3
+ ],
+ "roomsComplete": false,
+ "doors": null,
+ "windows": null,
+ "entrance": true
+}

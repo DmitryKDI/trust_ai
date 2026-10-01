@@ -1,0 +1,17 @@
+{
+ "source": "открытые источники (архив пользователя, BTI_plan_03.jpg)",
+ "style": "БТИ Москва 1:200, штамп, обрезанная экспликация",
+ "inputAreaM2": null,
+ "rooms": [
+  13.2,
+  7.1,
+  8.5,
+  7.8,
+  9.0,
+  8.5
+ ],
+ "roomsComplete": false,
+ "doors": null,
+ "windows": null,
+ "entrance": true
+}

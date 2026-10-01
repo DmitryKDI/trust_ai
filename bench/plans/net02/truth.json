@@ -1,0 +1,14 @@
+{
+ "source": "открытые источники (архив пользователя, BTI_plan_02.jpg)",
+ "style": "БТИ Москва, тонкие линии, двери-чёрточки",
+ "inputAreaM2": null,
+ "rooms": [
+  14.1,
+  14.2,
+  18.0
+ ],
+ "roomsComplete": false,
+ "doors": null,
+ "windows": null,
+ "entrance": true
+}

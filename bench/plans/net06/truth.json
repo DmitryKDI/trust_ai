@@ -1,0 +1,18 @@
+{
+ "source": "открытые источники (архив пользователя, BTI_plan_06.jpg)",
+ "style": "БТИ с красными линиями перепланировки",
+ "inputAreaM2": null,
+ "rooms": [
+  30.9,
+  11.2,
+  5.8,
+  1.8,
+  10.8,
+  20.1,
+  11.6
+ ],
+ "roomsComplete": false,
+ "doors": null,
+ "windows": null,
+ "entrance": true
+}

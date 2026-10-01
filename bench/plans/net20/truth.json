@@ -1,0 +1,16 @@
+{
+ "source": "открытые источники (архив пользователя, BTI_plan_20.jpg)",
+ "style": "БТИ Москва, поэтажный план помещения",
+ "inputAreaM2": null,
+ "rooms": [
+  19.0,
+  11.5,
+  13.2,
+  16.4,
+  18.5
+ ],
+ "roomsComplete": false,
+ "doors": null,
+ "windows": null,
+ "entrance": true
+}
