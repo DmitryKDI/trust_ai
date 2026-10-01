@@ -451,6 +451,42 @@ function quickPlanCore(inp: QuickInput): QuickResult {
       ent.push(cand.o);
     }
   }
+  // Входа всё ещё нет: в квартире вход ведёт в прихожую — помещение, куда открывается больше
+  // всего дверей. Если у него есть проём наружу шириной с дверь (часто принят за окно), это вход.
+  if (!ent.length && rooms.length >= 2) {
+    const roomAt = (q: Pt) => rooms.find((r) => pointIn(q, r.polygon));
+    const sides = (o: Opening) => {
+      const dx = o.b.x - o.a.x, dy = o.b.y - o.a.y, l = Math.hypot(dx, dy) || 1;
+      const m = { x: (o.a.x + o.b.x) / 2, y: (o.a.y + o.b.y) / 2 };
+      // Пробуем несколько отступов: точка у самого проёма может попасть в толщу стены.
+      const side = (sg: number) => {
+        for (const d of [350, 600, 900]) { const r = roomAt({ x: m.x + sg * dy / l * d, y: m.y - sg * dx / l * d }); if (r) return r; }
+        return undefined;
+      };
+      return [side(1), side(-1)];
+    };
+    const deg = new Map<string, number>();
+    for (const o of openings) if (o.type === 'door') for (const r of sides(o)) if (r) deg.set(r.id, (deg.get(r.id) ?? 0) + 1);
+    const hub = [...deg.entries()].sort((a, b) => b[1] - a[1])[0];
+    // Масштаб здесь ещё не уточнён — ширину сравниваем с медианой дверей этого же плана.
+    const dl = openings.filter((o) => o.type === 'door').map((o) => Math.hypot(o.b.x - o.a.x, o.b.y - o.a.y)).sort((a, b) => a - b);
+    const typ = dl.length ? dl[Math.floor(dl.length / 2)] : 0;
+    if (hub && hub[1] >= 2 && typ > 0) {
+      const cand = openings
+        .filter((o) => o.type === 'window')
+        .map((o) => ({ o, len: Math.hypot(o.b.x - o.a.x, o.b.y - o.a.y), s: sides(o) }))
+        .filter((x) => x.len >= 0.6 * typ && x.len <= 2.4 * typ && x.s.some((r) => r?.id === hub[0]) && x.s.some((r) => !r))
+        .sort((a, b) => Math.abs(a.len - typ) - Math.abs(b.len - typ))[0];
+      if (cand) {
+        // Ширину приводим к типичной двери (проём, принятый за окно, обычно шире самой двери).
+        const o = cand.o, f = Math.min(1, (1.2 * typ) / cand.len), m = { x: (o.a.x + o.b.x) / 2, y: (o.a.y + o.b.y) / 2 };
+        o.a = { x: m.x + (o.a.x - m.x) * f, y: m.y + (o.a.y - m.y) * f };
+        o.b = { x: m.x + (o.b.x - m.x) * f, y: m.y + (o.b.y - m.y) * f };
+        Object.assign(o, { type: 'door', isEntrance: true, thickness: 120, id: uid('d') });
+        ent.push(cand.o);
+      }
+    }
+  }
   const entrance = ent[0] ?? null;
   if (!entrance) notes.push('Вход не найден — отметьте входную дверь, если нужна проверка проходов.');
   // Меньше ~15 px на метр двери и тонкие перегородки уже не различимы.
