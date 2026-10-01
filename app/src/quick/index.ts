@@ -28,13 +28,25 @@ export interface QuickResult {
 
 const prov = (page: number | null) => ({ source: 'suggested' as const, verifiedByManager: false, sourcePage: page });
 
-/** Цвет «бумаги»: медиана ярких малонасыщенных пикселей. */
+/**
+ * Цвет «бумаги»: самый частый светлый малонасыщенный тон (на фото листа он серый, а не белый),
+ * затем медиана пикселей рядом с ним.
+ */
 function paperColor(d: Uint8ClampedArray | Uint8Array, n: number): [number, number, number] {
+  const lum = new Uint32Array(64);
+  for (let i = 0, p = 0; i < n; i++, p += 4) {
+    const r = d[p], g = d[p + 1], b = d[p + 2];
+    if (Math.max(r, g, b) - Math.min(r, g, b) < 30) { const l = (r + g + b) / 3; if (l >= 120) lum[l >> 2]++; }
+  }
+  let mode = -1;
+  for (let v = 0; v < 64; v++) if (lum[v] && (mode < 0 || lum[v] > lum[mode])) mode = v;
+  if (mode < 0) return [245, 245, 245];
+  const L = mode * 4 + 2;
   const hist = [new Uint32Array(256), new Uint32Array(256), new Uint32Array(256)];
   let cnt = 0;
   for (let i = 0, p = 0; i < n; i++, p += 4) {
     const r = d[p], g = d[p + 1], b = d[p + 2];
-    if (Math.min(r, g, b) > 200 && Math.max(r, g, b) - Math.min(r, g, b) < 30) { hist[0][r]++; hist[1][g]++; hist[2][b]++; cnt++; }
+    if (Math.max(r, g, b) - Math.min(r, g, b) < 30 && Math.abs((r + g + b) / 3 - L) <= 12) { hist[0][r]++; hist[1][g]++; hist[2][b]++; cnt++; }
   }
   const med = (h: Uint32Array) => { let s = 0; for (let v = 0; v < 256; v++) { s += h[v]; if (s >= cnt / 2) return v; } return 245; };
   return cnt ? [med(hist[0]), med(hist[1]), med(hist[2])] : [245, 245, 245];
@@ -131,6 +143,12 @@ function quickPlanCore(inp: QuickInput): QuickResult {
     const dr = Math.abs(rgba[p] - P[0]), dg = Math.abs(rgba[p + 1] - P[1]), db = Math.abs(rgba[p + 2] - P[2]);
     if (Math.max(dr, dg, db) > 32) barrier.d[i] = 1;
   }
+  // Цветная заливка помещений (рекламные и дизайнерские планировки): крупные однородные светлые
+  // области — пол, а не стена. Тонкие светлые полосы (розовые стены техплана) открытие убирает.
+  const light = newBin(w, h);
+  for (let i = 0, p = 0; i < n; i++, p += 4) if (barrier.d[i] && 0.299 * rgba[p] + 0.587 * rgba[p + 1] + 0.114 * rgba[p + 2] > 140) light.d[i] = 1;
+  const fill = openBin(light, Math.max(9, Math.round(Math.min(w, h) / 12)));
+  for (let i = 0; i < n; i++) if (fill.d[i]) barrier.d[i] = 0;
   // Пунктир перегородок и штрихи — в сплошную линию (короткие разрывы вдоль строк и столбцов).
   const gap = Math.max(3, Math.round(Math.min(w, h) / 120));
   const solid = or(barrier, closeDir(barrier, gap, true), closeDir(barrier, gap, false));
@@ -454,21 +472,9 @@ function quickPlanCore(inp: QuickInput): QuickResult {
     ...emptyGeometry(), sourcePage: inp.page, rooms, openings,
     calibration: { p1: { x: 0, y: 0 }, p2: { x: U(pxPerM), y: 0 }, mm: 1000, mmPerUnit: k, method: areaM2 ? 'area' : 'assumed' },
   };
-  // Без площади масштаб прикидываем по дверным проёмам: межкомнатная дверь ≈ 0,85 м.
+  // Без площади масштаб прикидываем по ширине двух крупнейших комнат ≈ 3,4 м (типично для квартир).
+  // Оценка по ширине дверей на стенде (bench/) давала ошибку чаще: проёмы на сканах меряются грубо.
   let scaleMethod: 'area' | 'doors' | 'assumed' = areaM2 ? 'area' : 'assumed';
-  if (!areaM2) {
-    // Проёмы, найденные по разрывам стен (4б), в оценку масштаба не берём: ширина там грубее.
-    const ws = openings.filter((o) => !o.isEntrance && !gapOpenings.some((g) => g.o === o)).map((o) => Math.hypot(o.b.x - o.a.x, o.b.y - o.a.y)).filter((x) => x >= 450 && x < 1600).sort((a, b) => a - b);
-    if (ws.length >= 2) {
-      const f = 850 / ws[Math.floor(ws.length / 2)];
-      if (f > 0.5 && f < 2) {
-        geo = { ...scaleGeometry(geo, f), calibration: { ...geo.calibration!, mmPerUnit: geo.calibration!.mmPerUnit * f, method: 'typical' } };
-        pxPerM /= f;
-        scaleMethod = 'doors';
-      }
-    }
-  }
-  // Нет ни площади, ни дверей: ширина двух крупнейших комнат ≈ 3,8 м (типично для квартир).
   if (scaleMethod === 'assumed') {
     const shorts = geo.rooms.map((r) => {
       const xs = r.polygon.map((q) => q.x), ys = r.polygon.map((q) => q.y);
@@ -476,7 +482,7 @@ function quickPlanCore(inp: QuickInput): QuickResult {
       return { a: polyArea(r.polygon), s: Math.min(bw, bh), l: Math.max(bw, bh) };
     }).filter((x) => x.l / x.s < 2.2).sort((a, b) => b.a - a.a).slice(0, 2);
     if (shorts.length) {
-      const f = 3800 / (shorts.reduce((t, x) => t + x.s, 0) / shorts.length);
+      const f = 3400 / (shorts.reduce((t, x) => t + x.s, 0) / shorts.length);
       if (f > 0.4 && f < 2.5) {
         geo = { ...scaleGeometry(geo, f), calibration: { ...geo.calibration!, mmPerUnit: geo.calibration!.mmPerUnit * f, method: 'typical' } };
         pxPerM /= f;
