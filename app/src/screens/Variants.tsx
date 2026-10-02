@@ -11,6 +11,7 @@ import { centroid, pointInPolygon } from '../geometry/poly';
 import { validate } from '../validate/validator';
 import { explain, isReady, type Rejected } from '../layout/variants';
 import { runVariantsInWorker } from '../layout/runVariants';
+import { QuickFix } from './QuickFix';
 
 const ADDABLE: FurnitureType[] = ['bed-double', 'bed-single', 'bedside', 'wardrobe', 'dresser', 'sofa', 'armchair', 'coffee-table', 'tv-unit', 'dining', 'desk', 'kitchen-run', 'fridge', 'bathtub', 'shower', 'toilet', 'washbasin', 'washer', 'shoe-cabinet', 'shelving', 'play-rug'];
 
@@ -74,10 +75,11 @@ export function VariantsScreen({ next, back }: { next: () => void; back: () => v
       {project.recognition && (
         <div className="notice">
           План прочитан автоматически: {project.recognition.rooms.length} помещ., {project.recognition.openings.windows} окон, {project.recognition.openings.doors} дверей; масштаб — {({ dimensions: 'по размерам на чертеже', area: 'по площади квартиры', typical: 'прикинут по типичным размерам — введите площадь квартиры или подправьте ползунком', assumed: 'прикинут приблизительно — подправьте ползунком' } as const)[project.recognition.scale.method]}.
-          {' '}Если стена, дверь или комната определена неверно — <button className="btn ghost sm" onClick={back}>поправьте план</button> и пересоберите варианты.
+          {' '}Если комната или дверь определена неверно — исправьте в «Быстрой правке» ниже; сложные случаи — на шаге <button className="btn ghost sm" onClick={back}>разметки</button>.
           {project.recognition.notes?.map((t, i) => <div key={i} className="small" style={{ marginTop: 6 }}>{t}</div>)}
         </div>
       )}
+      {g.rooms.length > 0 && <QuickFix busy={busy} onRebuild={() => setRebuild((n) => n + 1)} />}
       {project.planImage && <ScalePanel busy={busy} onApplied={() => setRebuild((n) => n + 1)} />}
       <RoomsPanel onChanged={build} busy={busy} onRescaled={() => setRebuild((n) => n + 1)} />
       {rejected.length > 0 && (

@@ -69,8 +69,8 @@ function grow(labels: Int32Array, allowed: Uint8Array, w: number, h: number) {
   }
 }
 
-/** Контур метки на грубой сетке → прямоугольный полигон (внешнее кольцо). */
-function labelPolygon(labels: Int32Array, w: number, h: number, id: number, cell: number): Pt[] | null {
+/** Контур метки на грубой сетке → прямоугольный полигон (внешнее кольцо). Нужен и быстрой правке. */
+export function labelPolygon(labels: Int32Array, w: number, h: number, id: number, cell: number): Pt[] | null {
   const gw = Math.ceil(w / cell), gh = Math.ceil(h / cell);
   const grid = new Uint8Array(gw * gh);
   for (let gy = 0; gy < gh; gy++)
