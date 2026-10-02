@@ -102,7 +102,58 @@ export function labelPolygon(labels: Int32Array, w: number, h: number, id: numbe
   if (!u.length) return null;
   const biggest = u.reduce((a, p) => (polyArea(fromRing(p[0])) > polyArea(fromRing(a[0])) ? p : a));
   // cell ≈ 0,1 м: выемки от цифр у стены — до 0,7 м шириной и 0,45 м глубиной.
-  return fillDents(straighten(simplifyRing(fromRing(biggest[0]), cell * 0.5), cell * 3), cell * 7, cell * 4.5);
+  return fillDents(straighten(diagonals(simplifyRing(fromRing(biggest[0]), cell * 0.5), cell * 2.5, cell * 20, cell * 15), cell * 3), cell * 7, cell * 4.5);
+}
+
+/**
+ * Скошенная стена (балкон-трапеция, эркер) на сетке становится «лесенкой»: по одной оси короткие
+ * ступеньки (до minor), по другой — отрезки до major, всё в одну сторону. Лесенку из трёх и более
+ * ступенек длиной больше minLen заменяем прямым отрезком через середины крайних ступенек.
+ * Выравнивание углов ниже трогает только горизонтальные и вертикальные отрезки.
+ */
+function diagonals(poly: Pt[], minor: number, major: number, minLen: number): Pt[] {
+  const n = poly.length;
+  if (n < 8) return poly;
+  const seg = (k: number) => { const a = poly[k % n], b = poly[(k + 1) % n]; return { dx: b.x - a.x, dy: b.y - a.y, len: Math.hypot(b.x - a.x, b.y - a.y) }; };
+  let start = 0;
+  for (let k = 0; k < n; k++) if (seg(k).len > seg(start).len) start = k;
+  const out: Pt[] = [];
+  let i = 0;
+  while (i < n) {
+    let j = i, maxH = 0, maxV = 0;
+    const sx = new Set<number>(), sy = new Set<number>();
+    while (j < n) {
+      const g = seg(start + j);
+      if (g.len > major) break;
+      if (g.dx) sx.add(Math.sign(g.dx));
+      if (g.dy) sy.add(Math.sign(g.dy));
+      if (sx.size > 1 || sy.size > 1) break;
+      if (Math.abs(g.dy) < 1e-6) maxH = Math.max(maxH, g.len); else maxV = Math.max(maxV, g.len);
+      if (Math.min(maxH, maxV) > minor) break;
+      j++;
+    }
+    const a = poly[(start + i) % n], b = poly[(start + j) % n];
+    // Настоящий скос — длинная правильная лесенка (не меньше четырёх ступенек) с заметным
+    // смещением по обеим осям; пара ступенек у дверного полотна или окна — не скос.
+    const ex = Math.abs(b.x - a.x), ey = Math.abs(b.y - a.y);
+    // Ступеньки ровно вдоль прямой: ни одна вершина не отходит от линии a–b дальше ступеньки
+    // (угол комнаты с выступом у двери даёт большое отклонение).
+    let dev = 0;
+    const L = Math.hypot(ex, ey) || 1;
+    for (let k = i + 1; k < j; k++) {
+      const q = poly[(start + k) % n];
+      dev = Math.max(dev, Math.abs((b.x - a.x) * (a.y - q.y) - (a.x - q.x) * (b.y - a.y)) / L);
+    }
+    if (j - i >= 7 && L >= minLen && Math.min(ex, ey) >= 1.5 * minor && dev <= minor) {
+      const m = (k: number) => { const p = poly[k % n], q = poly[(k + 1) % n]; return { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 }; };
+      out.push(a, m(start + i), m(start + j - 1));
+      i = j;
+      continue;
+    }
+    out.push(a);
+    i++;
+  }
+  return out.length >= 3 ? simplifyRing(out, 0.5) : poly;
 }
 
 /**
