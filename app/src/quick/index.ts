@@ -55,15 +55,17 @@ function paperColor(d: Uint8ClampedArray | Uint8Array, n: number): [number, numb
 const openBin = (b: Bin, k: number) => dilate(erode(b, k), k);
 
 /** Многоисточниковый рост меток по разрешённым пикселям. */
-function grow(labels: Int32Array, allowed: Uint8Array, w: number, h: number) {
+function grow(labels: Int32Array, allowed: Uint8Array, w: number, h: number, cls?: Int32Array, labelCls?: Map<number, number>) {
   let frontier: number[] = [];
   for (let i = 0; i < labels.length; i++) if (labels[i] > 0) frontier.push(i);
   while (frontier.length) {
     const next: number[] = [];
     for (const p of frontier) {
       const x = p % w, y = (p - x) / w, l = labels[p];
+      const lc = labelCls?.get(l);
       const nb = [x > 0 ? p - 1 : -1, x < w - 1 ? p + 1 : -1, y > 0 ? p - w : -1, y < h - 1 ? p + w : -1];
-      for (const q of nb) if (q >= 0 && allowed[q] && labels[q] === 0) { labels[q] = l; next.push(q); }
+      // Цвет заливки пола: метка не переходит на пол другого цвета (цветные планировки).
+      for (const q of nb) if (q >= 0 && allowed[q] && labels[q] === 0 && (lc === undefined || !cls || cls[q] < 0 || cls[q] === lc)) { labels[q] = l; next.push(q); }
     }
     frontier = next;
   }
@@ -233,7 +235,61 @@ function quickPlanCore(inp: QuickInput): QuickResult {
   const tot = new Map<number, number>(), wide = new Map<number, number>();
   for (let i = 0, p = 0; i < n; i++, p += 4) if (light.d[i]) { const b = binOf(p); tot.set(b, (tot.get(b) ?? 0) + 1); if (fill.d[i]) wide.set(b, (wide.get(b) ?? 0) + 1); }
   const floorBin = new Set([...tot].filter(([b, t]) => t > 200 && (wide.get(b) ?? 0) >= 0.4 * t).map(([b]) => b));
+  // Узкие помещения (коридор, санузел ~1 м) своей заливки «в широком» не имеют. Цвет — пол, если
+  // заметная его доля лежит в областях шире ~0,6 м. Только на цветных планировках (уже есть
+  // цветной пол): на техплане с белым полом широкие розовые стены — не пол.
+  if (floorBin.size) {
+    const mid = openBin(light, Math.max(7, Math.round(Math.min(w, h) / 20)));
+    const midN = new Map<number, number>();
+    for (let i = 0, p = 0; i < n; i++, p += 4) if (mid.d[i]) { const b = binOf(p); midN.set(b, (midN.get(b) ?? 0) + 1); }
+    for (const [b, t] of tot) if (t > 200 && (midN.get(b) ?? 0) >= 0.4 * t) floorBin.add(b);
+  }
   for (let i = 0, p = 0; i < n; i++, p += 4) if (fill.d[i] || (light.d[i] && floorBin.has(binOf(p)))) barrier.d[i] = 0;
+  // Цвет пола по пикселю: заливки близких оттенков (соседние ячейки цвета — JPEG) — один цвет,
+  // белая бумага — цвет 0. Мелкие пятна (текст, сглаживание на стыке цветов) — «любой» (-1).
+  // На цветных планировках разный цвет пола — разные помещения.
+  const cls = new Int32Array(n);
+  {
+    const bins = [...floorBin], par = new Map(bins.map((b) => [b, b]));
+    const root = (b: number): number => { while (par.get(b) !== b) b = par.get(b)!; return b; };
+    for (const a of bins) for (const b of bins) {
+      if (a >= b) continue;
+      if (Math.abs((a >> 8) - (b >> 8)) <= 1 && Math.abs(((a >> 4) & 15) - ((b >> 4) & 15)) <= 1 && Math.abs((a & 15) - (b & 15)) <= 1) par.set(root(b), root(a));
+    }
+    const ids = new Map<number, number>();
+    for (const b of bins) { const r = root(b); if (!ids.has(r)) ids.set(r, ids.size + 1); }
+    for (let i = 0, p = 0; i < n; i++, p += 4) cls[i] = barrier.d[i] ? -1 : floorBin.has(binOf(p)) ? ids.get(root(binOf(p)))! : 0;
+    // Пятна меньше ~1 м² (внутри ванны, буквы) — «любой» цвет.
+    const minSpot = Math.max(50, Math.round(Math.min(w, h) * Math.min(w, h) / 144));
+    for (let c = 0; c <= ids.size; c++) {
+      const m = newBin(w, h);
+      for (let i = 0; i < n; i++) if (cls[i] === c) m.d[i] = 1;
+      const { labels: ml, comps: mc } = components(m);
+      const tiny = new Uint8Array(mc.length + 1);
+      for (const k of mc) if (k.area < minSpot) tiny[k.id] = 1;
+      for (let i = 0; i < n; i++) if (ml[i] && tiny[ml[i]]) cls[i] = -1;
+    }
+  }
+  // Стык двух цветов пола режет затравку (по одному пикселю с каждой стороны).
+  const clsEdge = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    if (cls[i] < 0) continue;
+    const x = i % w;
+    for (const q of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, i - w, i + w]) if (q >= 0 && q < n && cls[q] >= 0 && cls[q] !== cls[i]) { clsEdge[i] = 1; break; }
+  }
+  const labelCls = new Map<number, number>();
+  const classOfLabels = (lab: Int32Array, skip: Set<number>) => {
+    labelCls.clear();
+    const cnt = new Map<number, Map<number, number>>();
+    for (let i = 0; i < n; i++) {
+      const l = lab[i];
+      if (l <= 0 || skip.has(l) || cls[i] < 0) continue;
+      const m = cnt.get(l) ?? new Map<number, number>();
+      m.set(cls[i], (m.get(cls[i]) ?? 0) + 1);
+      cnt.set(l, m);
+    }
+    for (const [l, m] of cnt) labelCls.set(l, [...m].sort((a, b) => b[1] - a[1])[0][0]);
+  };
   // Пунктир перегородок и штрихи — в сплошную линию (короткие разрывы вдоль строк и столбцов).
   const gap = Math.max(3, Math.round(Math.min(w, h) / 120));
   const solid = or(barrier, closeDir(barrier, gap, true), closeDir(barrier, gap, false));
@@ -263,7 +319,9 @@ function quickPlanCore(inp: QuickInput): QuickResult {
     for (const c of solidComps.comps) small[c.id] = Math.max(c.x1 - c.x0, c.y1 - c.y0) < 0.8 * pxPerM || (c !== largest && c.area < largest.area * 0.03) ? 1 : 0;
     for (let i = 0; i < n; i++) free.d[i] = solid.d[i] && !small[solidComps.labels[i]] ? 0 : 1;
     const k = Math.max(3, Math.round(0.9 * pxPerM));
-    const seeds = openBin(free, k);
+    const sf = newBin(w, h);
+    for (let i = 0; i < n; i++) sf.d[i] = free.d[i] && !clsEdge[i] ? 1 : 0;
+    const seeds = openBin(sf, k);
     // Санузел: пол вдоль ванны и унитаза уже 0,9 м — крупной затравки там нет, и коридор съедает
     // санузел. Сантехника — мелкий замкнутый контур (карман пола внутри линии); считаем карман
     // вместе с контуром полом и ищем затравку мельче (0,6 м: дверь санузла уже). Берём её, только
@@ -301,7 +359,8 @@ function quickPlanCore(inp: QuickInput): QuickResult {
     for (let x = 0; x < w; x++) for (const y of [0, h - 1]) if (free.d[y * w + x] && !labels[y * w + x]) labels[y * w + x] = edgeId;
     for (let y = 0; y < h; y++) for (const x of [0, w - 1]) if (free.d[y * w + x] && !labels[y * w + x]) labels[y * w + x] = edgeId;
     exteriorIds.add(edgeId);
-    grow(labels, free.d, w, h);
+    classOfLabels(labels, new Set([edgeId]));
+    grow(labels, free.d, w, h, cls, labelCls);
     // «Снаружи» уточняем по итоговым областям (затравка после открытия могла не дойти до рамки).
     for (const [id, b] of labelBoxes(labels, w)) if (isOutside(b)) exteriorIds.add(id);
     let apt = 0;
@@ -321,7 +380,7 @@ function quickPlanCore(inp: QuickInput): QuickResult {
     const l = labels[i];
     if (l > 0 && !exteriorIds.has(l) && (area.get(l) ?? 0) < minRoomPx) labels[i] = 0;
   }
-  grow(labels, free.d, w, h);
+  grow(labels, free.d, w, h, cls, labelCls);
 
   // Соприкосновение шире 1,4 м — это не дверь, а одна комната, разрезанная текстом или значком: склеиваем.
   let contacts = contactsOf(labels, w, h);
@@ -331,6 +390,8 @@ function quickPlanCore(inp: QuickInput): QuickResult {
     const [la, lb] = key.split(':').map(Number);
     if (exteriorIds.has(la) || exteriorIds.has(lb)) continue;
     const ext = Math.max(Math.max(...c.xs) - Math.min(...c.xs), Math.max(...c.ys) - Math.min(...c.ys));
+    const ca = labelCls.get(la), cb = labelCls.get(lb);
+    if (ca !== undefined && cb !== undefined && ca !== cb) continue; // разный цвет пола — разные помещения
     if (ext > 1.4 * pxPerM) { const ra = find(la), rb = find(lb); if (ra !== rb) parent.set(rb, ra); }
   }
   if (parent.size) {
