@@ -7,6 +7,9 @@ import jpeg from 'jpeg-js';
 import { PNG } from 'pngjs';
 import { expect, it } from 'vitest';
 import { quickPlan } from '../src/quick';
+import { buildVariants, isReady } from '../src/layout/variants';
+import { resolveRules } from '../src/rules/rules';
+import { brief } from './fixtures/synthetic';
 
 interface Truth {
   source: string;
@@ -51,6 +54,7 @@ it('стенд: распознавание планов', { timeout: 600_000 }, 
   if (!fs.existsSync(plansDir)) return;
   const rows: string[] = [];
   const scores: number[] = [];
+  let readySum = 0, itemsSum = 0;
   for (const id of fs.readdirSync(plansDir).sort()) {
     const dir = path.join(plansDir, id);
     const img = fs.readdirSync(dir).find((f) => /^plan\.(png|jpe?g)$/i.test(f));
@@ -74,9 +78,14 @@ it('стенд: распознавание планов', { timeout: 600_000 }, 
     if (truth.windows != null) parts.push(countScore(windows, truth.windows));
     if (truth.entrance != null) parts.push(r.report.entrance === truth.entrance ? 1 : 0);
     const score = parts.reduce((a, b) => a + b, 0) / parts.length;
+    // Расстановка мебели прямо по распознанному плану, без правок менеджера.
+    const lay = buildVariants({ ...r.geometry, approved: true }, { ...brief, children: 1 }, resolveRules());
+    const ready = lay.variants.filter(isReady).length;
+    const items = Math.max(0, ...lay.variants.map((v) => v.items.length));
+    readySum += ready; itemsSum += items;
     scores.push(score);
     const roomsCell = truth.rooms.length ? `${m.hit}/${truth.rooms.length}${truth.roomsComplete ? '' : '+'} (лишних ${m.extra})` : `всего ${found.length}/${truth.roomCount}`;
-    rows.push(`| ${id} | ${(score * 100).toFixed(0)} | ${roomsCell} | ${doors}${truth.doors != null ? '/' + truth.doors : ''} | ${windows}${truth.windows != null ? '/' + truth.windows : ''} | ${r.report.entrance ? 'да' : 'нет'}${truth.entrance != null ? (r.report.entrance === truth.entrance ? ' ✓' : ' ✗') : ''} | ${r.report.pxPerM.toFixed(0)} |`);
+    rows.push(`| ${id} | ${(score * 100).toFixed(0)} | ${roomsCell} | ${doors}${truth.doors != null ? '/' + truth.doors : ''} | ${windows}${truth.windows != null ? '/' + truth.windows : ''} | ${r.report.entrance ? 'да' : 'нет'}${truth.entrance != null ? (r.report.entrance === truth.entrance ? ' ✓' : ' ✗') : ''} | ${r.report.pxPerM.toFixed(0)} | ${ready}/${lay.variants.length} | ${items} |`);
   }
   if (!scores.length) return;
   const total = scores.reduce((a, b) => a + b, 0) / scores.length;
@@ -84,11 +93,12 @@ it('стенд: распознавание планов', { timeout: 600_000 }, 
     '# Стенд распознавания планов',
     '',
     `Общий балл: **${(total * 100).toFixed(1)}** из 100 (планов: ${scores.length}).`,
+    `Расстановка без правок: готовых вариантов в среднем **${(readySum / scores.length).toFixed(2)}** из 3, мебели в лучшем варианте — ${(itemsSum / scores.length).toFixed(1)} предм.`,
     '',
     'Помещения: совпало по площади (±25 %)/в эталоне («+» — эталон неполный) или «всего найдено/должно быть». Двери и окна: найдено/в эталоне.',
     '',
-    '| План | Балл | Помещения | Двери | Окна | Вход | px/м |',
-    '|---|---|---|---|---|---|---|',
+    '| План | Балл | Помещения | Двери | Окна | Вход | px/м | Готовых вариантов | Мебели |',
+    '|---|---|---|---|---|---|---|---|---|',
     ...rows,
     '',
   ].join('\n');

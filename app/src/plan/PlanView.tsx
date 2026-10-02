@@ -30,6 +30,8 @@ export interface PlanViewProps {
   onElementClick?: (kind: 'wall' | 'opening' | 'fixed' | 'room' | 'wet', id: string) => void;
   children?: ReactNode;
   className?: string;
+  /** Множитель размера подписей помещений (быстрая правка на телефоне — крупнее). */
+  labelScale?: number;
   ariaLabel?: string;
   svgProps?: React.SVGProps<SVGSVGElement>;
   /** Исходная картинка плана (скан, фото) — показывается как есть, мебель поверх. */
@@ -58,7 +60,7 @@ export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanVi
   const errIds = new Set(issues.filter((i) => i.severity === 'error').flatMap((i) => i.itemIds));
   const warnIds = new Set(issues.filter((i) => i.severity === 'warning').flatMap((i) => i.itemIds));
   const editor = mode === 'editor';
-  const fs = Math.max(120, (vb.maxX - vb.minX) / 90);
+  const fs = Math.max(120, (vb.maxX - vb.minX) / 90) * (p.labelScale ?? 1);
   const wetRooms = g.rooms.filter((r) => r.type === 'bath' || r.type === 'wc');
   const pal = PALETTES[p.planStyle ?? 'graphite'];
   // Исходный план БТИ (картинка) показывается как есть — поверх только мебель.

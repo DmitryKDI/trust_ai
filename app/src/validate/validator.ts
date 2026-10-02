@@ -1,7 +1,7 @@
 // Валидатор расстановки. Чистые функции: вход — геометрия, предметы, правила, бриф.
 import type { Brief, FurnitureItem, Issue, PlanGeometry, Pt } from '../model/types';
 import { bedSideStrips, CATALOG, footprint, localRect, serviceZones, sinkCenter } from '../furniture/catalog';
-import { bbox, bboxOverlap, dist, EPS_AREA, geomArea, intersection, outsideArea, overlapArea, pointInGeom, polyArea, toGeom, union, type Geom } from '../geometry/poly';
+import { bbox, bboxOverlap, dist, EPS_AREA, geomArea, intersection, outsideArea, overlapArea, pointInGeom, polyArea, segmentRect, toGeom, union, type Geom } from '../geometry/poly';
 import type { Rules } from '../rules/rules';
 import { planContext, roomOfPoint, type PlanContext } from './context';
 import { anyCellIn, distanceField, Grid, reachable } from './grid';
@@ -204,7 +204,10 @@ export function baseGrid(ctx: PlanContext, step: number): Grid {
   const b = ctx.bounds;
   const grid = new Grid({ minX: b.minX - 500, minY: b.minY - 500, maxX: b.maxX + 500, maxY: b.maxY + 500 }, step);
   for (const r of ctx.rooms) grid.paint(r.room.polygon, 0);
-  for (const d of ctx.doors) grid.paint(d.rect, 0);
+  // На скане (стены не нарисованы) между контурами соседних помещений лежит стена 200–500 мм,
+  // а проём распознан тонкой линией: расширяем его поперёк стены, чтобы он соединял помещения.
+  const bridge = ctx.g.walls.length ? 0 : 600;
+  for (const d of ctx.doors) grid.paint(bridge ? segmentRect(d.o.a, d.o.b, d.o.thickness + bridge) : d.rect, 0);
   for (const f of ctx.fixed) grid.paint(f.poly, 1);
   m.set(step, grid);
   return grid;
@@ -230,7 +233,11 @@ export function reachability(ctx: PlanContext, items: FurnitureItem[], rules: Ru
   }
   for (const r of ctx.rooms) {
     if (anyCellIn(grid, passage, r.room.polygon)) reachableRooms.push(r.room.id);
-    else {
+    else if (r.room.type === 'balcony') {
+      // Выход на балкон на сканах обычно распознаётся как окно; мебель там не ставится.
+      unreachableRooms.push(r.room.id);
+      issues.push(issue('warning', 'room-unreachable', `Выход на «${r.room.name}» не отмечен — проверьте дверь на балкон`));
+    } else {
       unreachableRooms.push(r.room.id);
       const blockers = items.filter((it) => it.roomId === r.room.id || nearDoorOf(ctx, it, r.room.polygon)).map((i) => i.id);
       issues.push(issue('error', 'room-unreachable', `Нет прохода ${rules.passageMin} мм в помещение «${r.room.name}»`, blockers));

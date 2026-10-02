@@ -7,13 +7,14 @@ import { useStore } from '../state/store';
 import { PlanView, planBounds, polyPath } from '../plan/PlanView';
 import { geometryHash } from '../geometry/plan';
 import { pointInPolygon, type BBox } from '../geometry/poly';
-import { doorAt, mergeRooms, roomFromImage, splitRoom, type ImageData8 } from '../editor/quickfix';
+import { doorAt, mergeRooms, newRoomFromImage, roomFromCorners, splitRoom, type ImageData8 } from '../editor/quickfix';
 
-type Tool = 'select' | 'add' | 'split' | 'merge' | 'door';
+type Tool = 'select' | 'add' | 'rect' | 'split' | 'merge' | 'door';
 
 const TOOLS: { id: Tool; label: string; hint: string }[] = [
   { id: 'select', label: 'Выбрать', hint: 'Щёлкните помещение или дверь — внизу появятся действия. Колесо мыши — масштаб.' },
   { id: 'add', label: 'Добавить комнату', hint: 'Щёлкните по свободному полу внутри пропущенного помещения (не по сантехнике и цифрам) — контур найдётся сам.' },
+  { id: 'rect', label: 'Комната по углам', hint: 'Два щелчка — противоположные углы помещения (удобно для санузлов с сантехникой).' },
   { id: 'split', label: 'Разрезать', hint: 'Проведите линию по стене между слипшимися помещениями: два щелчка — начало и конец.' },
   { id: 'merge', label: 'Объединить', hint: 'Щёлкните два куска одного помещения (например, разрезанного надписью).' },
   { id: 'door', label: 'Дверь', hint: 'Щёлкните по стене, где должна быть дверь. Снаружи квартиры — входная.' },
@@ -114,8 +115,19 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
       if (!pixels.current) { setMsg('Картинка плана ещё загружается или недоступна — помещение можно обвести на шаге «Разметка».'); return; }
       if (roomAt(p)) { setMsg('Здесь уже есть помещение. Если оно неверное — выберите его и удалите, затем добавьте заново.'); return; }
       const { data, mmPerPx } = pixels.current;
-      const poly = roomFromImage(data, { x: p.x / mmPerPx, y: p.y / mmPerPx }, mmPerPx);
-      if (!poly) { setMsg('Контур не найден: помещение не замкнуто на картинке. Обведите его на шаге «Разметка» инструментом «Помещение по точкам».'); return; }
+      const poly = newRoomFromImage(data, { x: p.x / mmPerPx, y: p.y / mmPerPx }, mmPerPx, g.rooms);
+      if (!poly) { setMsg('Контур не найден по картинке. Воспользуйтесь «Комната по углам» — два щелчка в противоположные углы.'); return; }
+      const room: Room = { id: uid('r'), name: 'Помещение', type: 'other', polygon: poly, source: 'manual', verifiedByManager: true, sourcePage: g.sourcePage };
+      fix((x) => ({ ...x, rooms: [...x.rooms, room] }), 'Помещение добавлено — выберите его назначение ниже.');
+      setSel({ kind: 'room', id: room.id });
+      setTool('select');
+      return;
+    }
+    if (tool === 'rect') {
+      if (!draft.length) { setDraft([p]); return; }
+      const poly = roomFromCorners(draft[0], p, g.rooms);
+      setDraft([]);
+      if (!poly) { setMsg('Прямоугольник слишком мал или целиком занят другими помещениями.'); return; }
       const room: Room = { id: uid('r'), name: 'Помещение', type: 'other', polygon: poly, source: 'manual', verifiedByManager: true, sourcePage: g.sourcePage };
       fix((x) => ({ ...x, rooms: [...x.rooms, room] }), 'Помещение добавлено — выберите его назначение ниже.');
       setSel({ kind: 'room', id: room.id });
@@ -186,13 +198,14 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
         <button className="tool" onClick={() => setView(null)}>Вписать</button>
       </div>
       <div className="canvas-wrap qf-canvas">
-        <PlanView ref={svgRef} g={g} mode="editor" viewBox={vb} selectedId={sel?.id}
+        <PlanView ref={svgRef} g={g} mode="editor" viewBox={vb} selectedId={sel?.id} labelScale={1.8}
           underlay={img ? { url: img.url, widthMm: img.widthMm, heightMm: img.heightMm, opacity: 0.45 } : null}
           onElementClick={onElement}
           svgProps={{ onPointerDown: onDown, style: { cursor: tool === 'select' || tool === 'merge' ? 'pointer' : 'crosshair' } }}>
           {room && <path d={polyPath(room.polygon)} fill="rgba(210,105,30,.12)" stroke="#d2691e" strokeWidth={3} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
           {firstRoom && <path d={polyPath(firstRoom.polygon)} fill="rgba(47,111,143,.15)" stroke="#2f6f8f" strokeWidth={3} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
           {opening && <path d={`M${opening.a.x} ${opening.a.y}L${opening.b.x} ${opening.b.y}`} stroke="#d2691e" strokeWidth={8} strokeLinecap="round" vectorEffect="non-scaling-stroke" pointerEvents="none" />}
+          {tool === 'rect' && draft.length === 1 && <circle cx={draft[0].x} cy={draft[0].y} r={(vb.maxX - vb.minX) / 120} fill="none" stroke="#d2691e" strokeWidth={2} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
           {draft.map((q, i) => <circle key={i} cx={q.x} cy={q.y} r={(vb.maxX - vb.minX) / 150} fill="#d2691e" pointerEvents="none" />)}
         </PlanView>
         <div className="canvas-hint">{msg ?? TOOLS.find((t) => t.id === tool)!.hint}</div>

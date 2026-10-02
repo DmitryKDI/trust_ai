@@ -1,6 +1,6 @@
 // Быстрая правка плана: разрезать, объединить, дверь по щелчку, помещение по картинке.
 import { describe, expect, it } from 'vitest';
-import { doorAt, mergeRooms, roomFromImage, splitRoom } from '../src/editor/quickfix';
+import { doorAt, mergeRooms, roomFromCorners, roomFromImage, splitRoom } from '../src/editor/quickfix';
 import { emptyGeometry } from '../src/model/defaults';
 import { polyArea } from '../src/geometry/poly';
 import type { Room } from '../src/model/types';
@@ -57,5 +57,11 @@ describe('быстрая правка', () => {
     expect(polyArea(poly) / 1e6).toBeLessThan(18);
     // Щелчок снаружи плана — заливка утекает на весь лист.
     expect(roomFromImage({ data: d, width: W, height: H }, { x: 10, y: 10 }, 1000 / S)).toBeNull();
+  });
+  it('помещение по двум углам без наложения на соседей', () => {
+    const rooms = [room('a', rect(0, 0, 3000, 4000))];
+    const p = roomFromCorners({ x: 2500, y: 0 }, { x: 5000, y: 2000 }, rooms)!;
+    expect(polyArea(p) / 1e6).toBeCloseTo(4, 1); // 2,5×2 м минус перекрытие 0,5×2 м
+    expect(roomFromCorners({ x: 100, y: 100 }, { x: 900, y: 900 }, rooms)).toBeNull();
   });
 });

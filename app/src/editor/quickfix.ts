@@ -4,7 +4,7 @@ import type { Opening, PlanGeometry, Pt, Room } from '../model/types';
 import { uid } from '../model/defaults';
 import { components, dilate, erode, newBin } from '../recognize/raster';
 import { labelPolygon } from '../quick';
-import { dist, fromRing, intersection, polyArea, projectOnSegment, toGeom, union } from '../geometry/poly';
+import { difference, dist, fromRing, intersection, pointInPolygon, polyArea, projectOnSegment, toGeom, union } from '../geometry/poly';
 
 const MIN_ROOM_MM2 = 0.5e6;
 
@@ -129,33 +129,83 @@ export function roomFromImage(img: ImageData8, px: { x: number; y: number }, mmP
   for (let i = 0; i < w * h; i++) closed.d[i] = floor.d[i] || small[spots.labels[i]] ? 1 : 0;
   // Дверные проёмы: открытие шире двери (1,0 м) отрывает соседние помещения. Узкое помещение
   // (коридор) при этом исчезает — тогда пробуем окно поуже.
-  for (const km of [1.0, 0.7, 0.45]) {
+  const levels = [1.0, 0.7, 0.45, 0.3].map((km) => {
     const ko = Math.max(3, Math.round(km * pxPerM));
-    const opened = dilate(erode(closed, ko), ko);
-    const { labels, comps } = components(opened);
-    let id = labels[y0 * w + x0];
-    const direct = !!id;
-    if (!id) {
-      // Щелчок на сантехнику или в узкое место: ближайшая компонента в радиусе 0,8 м.
-      const r = Math.round(0.8 * pxPerM);
-      let best = Infinity;
-      for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
-        const x = x0 + dx, y = y0 + dy;
-        if (x < 0 || y < 0 || x >= w || y >= h || !labels[y * w + x]) continue;
-        const d = dx * dx + dy * dy;
-        if (d < best) { best = d; id = labels[y * w + x]; }
+    return components(dilate(erode(closed, ko), ko));
+  });
+  const cell = Math.max(2, Math.round(pxPerM * 0.1));
+  // Найденное ядро помещения дорастает по полу на ~0,6 м (сантехника и мебель режут пол на части;
+  // прихваченный через дверь кусок соседней комнаты вычитается в newRoomFromImage).
+  const grow = (lv: (typeof levels)[number], id: number) => {
+    const lab = new Int32Array(w * h);
+    let front: number[] = [];
+    for (let i = 0; i < w * h; i++) if (lv.labels[i] === id) { lab[i] = 1; front.push(i); }
+    for (let step = 0, n = Math.round(0.6 * pxPerM); step < n && front.length; step++) {
+      const next: number[] = [];
+      for (const q of front) {
+        const x = q % w;
+        for (const t of [x > 0 ? q - 1 : -1, x < w - 1 ? q + 1 : -1, q - w, q + w]) {
+          if (t < 0 || t >= w * h || lab[t] || !closed.d[t]) continue;
+          lab[t] = 1; next.push(t);
+        }
       }
+      front = next;
     }
-    if (!id) continue;
-    const c = comps[id - 1];
-    // Заливка утекла на весь лист — помещение не замкнуто (если щёлкнули прямо в неё);
-    // найденная рядом «внешняя» область — просто не та, пробуем окно поуже.
-    if (c.x0 === 0 || c.y0 === 0 || c.x1 === w - 1 || c.y1 === h - 1) { if (direct) return null; continue; }
-    const cell = Math.max(2, Math.round(pxPerM * 0.1));
-    const poly = labelPolygon(labels, w, h, id, cell);
-    if (!poly || poly.length < 4) continue;
+    return lab;
+  };
+  const toPoly = (lv: (typeof levels)[number], id: number) => {
+    const poly = labelPolygon(grow(lv, id), w, h, 1, cell);
+    if (!poly || poly.length < 4) return null;
     const mm = poly.map((q) => ({ x: Math.round(q.x * mmPerPx), y: Math.round(q.y * mmPerPx) }));
-    if (polyArea(mm) >= MIN_ROOM_MM2) return mm;
+    return polyArea(mm) >= MIN_ROOM_MM2 ? mm : null;
+  };
+  const edge = (c: { x0: number; y0: number; x1: number; y1: number }) => c.x0 === 0 || c.y0 === 0 || c.x1 === w - 1 || c.y1 === h - 1;
+  // 1) Щёлкнули прямо в пол: от широкого окна к узкому (широкое отрывает соседей через двери).
+  for (const lv of levels) {
+    const id = lv.labels[y0 * w + x0];
+    if (!id) continue;
+    if (edge(lv.comps[id - 1])) return null; // заливка утекла на весь лист — помещение не замкнуто
+    const p = toPoly(lv, id);
+    if (p) return p;
+  }
+  // 2) Щелчок на сантехнику или цифру: пол рядом (до 0,4 м), начиная с самого узкого окна —
+  //    так берётся маленькое помещение, а не соседняя большая комната.
+  const r = Math.round(0.4 * pxPerM);
+  for (const lv of [...levels].reverse()) {
+    let id = 0, best = Infinity;
+    for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      const x = x0 + dx, y = y0 + dy;
+      if (x < 0 || y < 0 || x >= w || y >= h || !lv.labels[y * w + x]) continue;
+      const d = dx * dx + dy * dy;
+      if (d < best) { best = d; id = lv.labels[y * w + x]; }
+    }
+    if (!id || edge(lv.comps[id - 1])) continue;
+    const p = toPoly(lv, id);
+    if (p) return p;
   }
   return null;
+}
+
+/**
+ * Новое помещение по щелчку: контур по картинке минус уже существующие помещения
+ * (заливка может захватить соседнюю комнату через тонкую или прерванную стену).
+ * Остаётся кусок, в который щёлкнули (или крупнейший рядом).
+ */
+export function newRoomFromImage(img: ImageData8, px: { x: number; y: number }, mmPerPx: number, rooms: Room[]): Pt[] | null {
+  const poly = roomFromImage(img, px, mmPerPx);
+  if (!poly) return null;
+  const rest = rooms.length ? difference(toGeom(poly), ...rooms.map((r) => toGeom(r.polygon))) : toGeom(poly);
+  const click = { x: px.x * mmPerPx, y: px.y * mmPerPx };
+  const parts = rest.map((p) => fromRing(p[0])).filter((p) => polyArea(p) >= MIN_ROOM_MM2);
+  const hit = parts.find((p) => pointInPolygon(click, p)) ?? parts.sort((a, b) => polyArea(b) - polyArea(a))[0];
+  return hit ? hit.map((q) => ({ x: Math.round(q.x), y: Math.round(q.y) })) : null;
+}
+
+/** Помещение прямоугольником по двум углам (санузлы, забитые сантехникой) минус соседние помещения. */
+export function roomFromCorners(a: Pt, b: Pt, rooms: Room[]): Pt[] | null {
+  const r = [{ x: a.x, y: a.y }, { x: b.x, y: a.y }, { x: b.x, y: b.y }, { x: a.x, y: b.y }].map((q) => ({ x: Math.round(q.x), y: Math.round(q.y) }));
+  if (polyArea(r) < MIN_ROOM_MM2) return null;
+  const rest = rooms.length ? difference(toGeom(r), ...rooms.map((x) => toGeom(x.polygon))) : toGeom(r);
+  const parts = rest.map((p) => fromRing(p[0])).filter((p) => polyArea(p) >= MIN_ROOM_MM2).sort((p, q) => polyArea(q) - polyArea(p));
+  return parts[0] ? parts[0].map((q) => ({ x: Math.round(q.x), y: Math.round(q.y) })) : null;
 }

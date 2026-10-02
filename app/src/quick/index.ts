@@ -99,7 +99,44 @@ export function labelPolygon(labels: Int32Array, w: number, h: number, id: numbe
   const u = union(...rects.map((r) => toGeom(r)));
   if (!u.length) return null;
   const biggest = u.reduce((a, p) => (polyArea(fromRing(p[0])) > polyArea(fromRing(a[0])) ? p : a));
-  return straighten(simplifyRing(fromRing(biggest[0]), cell * 0.5), cell * 3);
+  // cell ≈ 0,1 м: выемки от цифр у стены — до 0,7 м шириной и 0,45 м глубиной.
+  return fillDents(straighten(simplifyRing(fromRing(biggest[0]), cell * 0.5), cell * 3), cell * 7, cell * 4.5);
+}
+
+/**
+ * Заполнение узких П-образных выемок посреди стены (цифры размеров, прижатые к стене, вырезают
+ * их из помещения и сужают проходы). Выемка убирается, только если площадь от этого растёт —
+ * выступы помещения не трогаются.
+ */
+function fillDents(poly: Pt[], maxW: number, maxD: number): Pt[] {
+  let pts = poly.map((q) => ({ ...q }));
+  const area = (p: Pt[]) => Math.abs(p.reduce((s, a, i) => { const b = p[(i + 1) % p.length]; return s + a.x * b.y - b.x * a.y; }, 0)) / 2;
+  for (let guard = 0; guard < 100 && pts.length > 4; guard++) {
+    let changed = false;
+    const n = pts.length;
+    for (let i = 0; i < n; i++) {
+      const ia = i, ib = (i + 1) % n, ic = (i + 2) % n, id = (i + 3) % n;
+      const a = pts[ia], b = pts[ib], c = pts[ic], d = pts[id];
+      const d1 = Math.hypot(b.x - a.x, b.y - a.y), w2 = Math.hypot(c.x - b.x, c.y - b.y), d3 = Math.hypot(d.x - c.x, d.y - c.y);
+      if (d1 > maxD || d3 > maxD || w2 > maxW) continue;
+      // a→b и c→d — стенки выемки в противоположные стороны, b→c — её дно.
+      if ((b.x - a.x) * (d.x - c.x) + (b.y - a.y) * (d.y - c.y) >= 0) continue;
+      // Концы выемки — на одной линии стены (с допуском); d выравнивается по a.
+      const vertical = Math.abs(b.x - a.x) < 1e-6; // стенки выемки вертикальны → стена горизонтальна
+      const off = vertical ? Math.abs(a.y - d.y) : Math.abs(a.x - d.x);
+      if (off > maxD * 0.3) continue;
+      const cand = pts.filter((_, j) => j !== ib && j !== ic).map((q) => ({ ...q }));
+      const dj = cand.findIndex((q) => q.x === d.x && q.y === d.y);
+      if (dj < 0) continue;
+      if (vertical) cand[dj].y = a.y; else cand[dj].x = a.x;
+      if (area(cand) <= area(pts)) continue; // это выступ, а не выемка
+      pts = simplifyRing(cand, 0.5);
+      changed = true;
+      break;
+    }
+    if (!changed) break;
+  }
+  return pts;
 }
 
 /**
@@ -528,6 +565,7 @@ function quickPlanCore(inp: QuickInput): QuickResult {
   }
   const typed = assignTypes(geo, [], 1, entrance && geo.openings.find((o) => o.id === entrance.id) || null, inp.children);
   geo = { ...geo, rooms: typed.rooms };
+  geo = { ...geo, openings: [...geo.openings, ...inferMissingDoors(geo, inp.page)] };
 
   // 6. Маска стен для подложки: преграды без мелкого «шума» (текст, цифры), только в пределах квартиры.
   const wallsMask = { rgba: new Uint8ClampedArray(n * 4), w, h };
@@ -554,6 +592,50 @@ function quickPlanCore(inp: QuickInput): QuickResult {
       doors: openings.length, entrance: !!entrance, pxPerM, areaAssumed: !areaM2, scaleMethod, notes, ms: Date.now() - t0 + seedCount * 0,
     },
   };
+}
+
+/**
+ * У каждого помещения (кроме балкона) есть дверь. Если распознавание её не нашло, ставим
+ * предполагаемую дверь (подсказку) в общей стене с прихожей или коридором, иначе — с соседом,
+ * у которого общая стена длиннее. Без этого помещение «недостижимо», и мебель в нём не встаёт.
+ */
+export function inferMissingDoors(g: PlanGeometry, page: number | null): Opening[] {
+  const rooms = g.rooms.filter((r) => r.type !== 'balcony');
+  const doors = g.openings.filter((o) => o.type === 'door');
+  const touches = (o: Opening, r: Room) => {
+    const dx = o.b.x - o.a.x, dy = o.b.y - o.a.y, l = Math.hypot(dx, dy) || 1, m = { x: (o.a.x + o.b.x) / 2, y: (o.a.y + o.b.y) / 2 };
+    return [1, -1].some((sg) => [150, 400, 700].some((d) => pointIn({ x: m.x + sg * (dy / l) * d, y: m.y - sg * (dx / l) * d }, r.polygon)));
+  };
+  // Общие участки стен: параллельные рёбра двух помещений на расстоянии до 0,6 м, перекрытие от 0,9 м.
+  const shared = (r: Room, q: Room) => {
+    let best: { len: number; a: Pt; b: Pt; gap: number } | null = null;
+    const E = (p: Pt[]) => p.map((a, i) => [a, p[(i + 1) % p.length]] as const);
+    for (const [a1, b1] of E(r.polygon)) for (const [a2, b2] of E(q.polygon)) {
+      const h1 = Math.abs(a1.y - b1.y) < 1, h2 = Math.abs(a2.y - b2.y) < 1, v1 = Math.abs(a1.x - b1.x) < 1, v2 = Math.abs(a2.x - b2.x) < 1;
+      let gap: number, lo: number, hi: number, mid: (t: number) => Pt;
+      if (h1 && h2) {
+        gap = Math.abs(a1.y - a2.y); lo = Math.max(Math.min(a1.x, b1.x), Math.min(a2.x, b2.x)); hi = Math.min(Math.max(a1.x, b1.x), Math.max(a2.x, b2.x));
+        const y = (a1.y + a2.y) / 2; mid = (t) => ({ x: t, y });
+      } else if (v1 && v2) {
+        gap = Math.abs(a1.x - a2.x); lo = Math.max(Math.min(a1.y, b1.y), Math.min(a2.y, b2.y)); hi = Math.min(Math.max(a1.y, b1.y), Math.max(a2.y, b2.y));
+        const x = (a1.x + a2.x) / 2; mid = (t) => ({ x, y: t });
+      } else continue;
+      if (gap > 600 || hi - lo < 900 || (best && hi - lo <= best.len)) continue;
+      const c = (lo + hi) / 2;
+      best = { len: hi - lo, a: mid(c - 400), b: mid(c + 400), gap };
+    }
+    return best;
+  };
+  const out: Opening[] = [];
+  for (const r of rooms) {
+    if (doors.some((o) => touches(o, r)) || out.some((o) => touches(o, r))) continue;
+    const cands = rooms.filter((q) => q.id !== r.id).map((q) => ({ q, s: shared(r, q) })).filter((x) => x.s)
+      .sort((x, y) => (+(y.q.type === 'hall' || y.q.type === 'corridor') - +(x.q.type === 'hall' || x.q.type === 'corridor')) || y.s!.len - x.s!.len);
+    const c = cands[0];
+    if (!c) continue;
+    out.push({ id: uid('d'), type: 'door', a: c.s!.a, b: c.s!.b, thickness: Math.max(80, Math.round(c.s!.gap)), hinge: 'a', swing: 1, isEntrance: false, sillHeight: null, source: 'suggested', verifiedByManager: false, sourcePage: page });
+  }
+  return out;
 }
 
 function pointIn(p: Pt, poly: Pt[]): boolean {
