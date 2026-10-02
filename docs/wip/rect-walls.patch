@@ -1,0 +1,140 @@
+diff --git a/app/src/quick/index.ts b/app/src/quick/index.ts
+index 39add9e..956b367 100644
+--- a/app/src/quick/index.ts
++++ b/app/src/quick/index.ts
+@@ -996,6 +996,135 @@ function quickPlanCore(inp: QuickInput): QuickResult {
+     r.polygon = pp.poly.map((q) => ({ x: Math.round(U(q.x) * k), y: Math.round(U(q.y) * k) }));
+   }
+ 
++  // 5б. Зона — прямоугольник до жирных стен. Сантехника, мебель, полотна дверей и надписи —
++  // тонкие линии, границу помещения они не задают. Прямоугольник помещения раздвигаем, пока
++  // в следующей полосе почти нет жирной стены, соседних помещений и улицы; недостающие до него
++  // куски, где нет жирной стены, отдаём помещению. Г-образные помещения не страдают: их
++  // недостающий угол занят стеной или соседом.
++  {
++    // Жирная стена здесь — толстый (от ~12 см) штрих общей сети стен. Контуры ванны, унитаза,
++    // мебели тоньше или стоят отдельно — их игнорируем.
++    const nf = newBin(w, h);
++    for (let i = 0; i < n; i++) nf.d[i] = free.d[i] ? 0 : 1;
++    const fat = openBin(nf, Math.max(3, Math.round(0.12 * pxPerM)));
++    const { labels: fl, comps: fc } = components(fat);
++    const big = fc.reduce((a, c) => (c.area > a.area ? c : a), fc[0]);
++    // Стена — длинная и узкая полоса (толщина до 0,45 м, длина от 1 м) или их перекрёсток;
++    // залитые ванна, унитаз, плита компактны — не стены.
++    const hr = new Float32Array(n), vr = new Float32Array(n);
++    for (let y = 0; y < h; y++) for (let x = 0; x < w; ) {
++      if (!nf.d[y * w + x]) { x++; continue; }
++      let e = x; while (e < w && nf.d[y * w + e]) e++;
++      for (let q = x; q < e; q++) hr[y * w + q] = e - x;
++      x = e;
++    }
++    for (let x = 0; x < w; x++) for (let y = 0; y < h; ) {
++      if (!nf.d[y * w + x]) { y++; continue; }
++      let e = y; while (e < h && nf.d[e * w + x]) e++;
++      for (let q = y; q < e; q++) vr[q * w + x] = e - y;
++      y = e;
++    }
++    const thinW = 0.45 * pxPerM, longW = 1.0 * pxPerM;
++    const bold = newBin(w, h);
++    for (let i = 0; i < n; i++) {
++      if (!fl[i] || !big || !(fl[i] === big.id || fc[fl[i] - 1].area >= 0.2 * big.area)) continue;
++      const a = Math.min(hr[i], vr[i]), b = Math.max(hr[i], vr[i]);
++      if ((a <= thinW && b >= longW) || a >= longW) bold.d[i] = 1;
++    }
++    const own = new Int32Array(n); // чьи пиксели по текущим полигонам
++    const paint = (poly: Pt[], id: number) => {
++      const ys = poly.map((q) => q.y), xs = poly.map((q) => q.x);
++      for (let y = Math.max(0, Math.floor(Math.min(...ys))); y <= Math.min(h - 1, Math.ceil(Math.max(...ys))); y++)
++        for (let x = Math.max(0, Math.floor(Math.min(...xs))); x <= Math.min(w - 1, Math.ceil(Math.max(...xs))); x++)
++          if (pointIn({ x: x + 0.5, y: y + 0.5 }, poly)) own[y * w + x] = id;
++    };
++    for (const pp of pxPolys) paint(pp.poly, pp.id);
++    // Улица — только то, что выходит к краю картинки: белое внутри ванны на цветной планировке
++    // тоже помечено «не помещением», но границей не служит.
++    const street = new Set<number>();
++    for (let x = 0; x < w; x++) for (const y of [0, h - 1]) if (exteriorIds.has(roomPx[y * w + x])) street.add(roomPx[y * w + x]);
++    for (let y = 0; y < h; y++) for (const x of [0, w - 1]) if (exteriorIds.has(roomPx[y * w + x])) street.add(roomPx[y * w + x]);
++    const blocked = (i: number, id: number) => bold.d[i] || street.has(roomPx[i]) || (own[i] > 0 && own[i] !== id);
++    const maxGrow = Math.round(3 * pxPerM);
++    for (const pp of pxPolys) {
++      const xs = pp.poly.map((q) => q.x), ys = pp.poly.map((q) => q.y);
++      let x0 = Math.max(0, Math.round(Math.min(...xs))), x1 = Math.min(w - 1, Math.round(Math.max(...xs)) - 1);
++      let y0 = Math.max(0, Math.round(Math.min(...ys))), y1 = Math.min(h - 1, Math.round(Math.max(...ys)) - 1);
++      const bad = (xa: number, xb: number, ya: number, yb: number) => {
++        let b = 0, t = 0;
++        for (let y = ya; y <= yb; y++) for (let x = xa; x <= xb; x++) { t++; if (blocked(y * w + x, pp.id)) b++; }
++        return t ? b / t : 1;
++      };
++      for (let step = 0; step < maxGrow; step++) {
++        let moved = false;
++        if (y0 > 0 && bad(x0, x1, y0 - 1, y0 - 1) <= 0.1) { y0--; moved = true; }
++        if (y1 < h - 1 && bad(x0, x1, y1 + 1, y1 + 1) <= 0.1) { y1++; moved = true; }
++        if (x0 > 0 && bad(x0 - 1, x0 - 1, y0, y1) <= 0.1) { x0--; moved = true; }
++        if (x1 < w - 1 && bad(x1 + 1, x1 + 1, y0, y1) <= 0.1) { x1++; moved = true; }
++        if (!moved) break;
++      }
++      const rect: Pt[] = [{ x: x0, y: y0 }, { x: x1 + 1, y: y0 }, { x: x1 + 1, y: y1 + 1 }, { x: x0, y: y1 + 1 }];
++      const rA = polyArea(rect);
++      const others = pxPolys.filter((o) => o !== pp).map((o) => toGeom(o.poly));
++      const miss = difference(toGeom(rect), toGeom(pp.poly), ...others);
++      const add: Pt[][] = [];
++      for (const part of miss) {
++        const ring = fromRing(part[0]);
++        const a = polyArea(ring);
++        if (a < cell * cell * 4 || a > 0.5 * rA) continue;
++        const px = ring.map((q) => q.x), py = ring.map((q) => q.y);
++        let b = 0, t = 0;
++        for (let y = Math.max(0, Math.floor(Math.min(...py))); y <= Math.min(h - 1, Math.ceil(Math.max(...py))); y++)
++          for (let x = Math.max(0, Math.floor(Math.min(...px))); x <= Math.min(w - 1, Math.ceil(Math.max(...px))); x++) {
++            if (!pointIn({ x: x + 0.5, y: y + 0.5 }, ring)) continue;
++            t++;
++            if (blocked(y * w + x, pp.id)) b++;
++          }
++        if (t && b <= 0.15 * t) add.push(ring);
++      }
++      if (!add.length) continue;
++      const u = union(toGeom(pp.poly), ...add.map((r) => toGeom(r)));
++      if (u.length !== 1) continue;
++      pp.poly = straighten(simplifyRing(fromRing(u[0][0]), 0.5), cell * 3);
++      paint(pp.poly, pp.id);
++      const r = rooms.find((x) => x.id === `r${pp.id}`)!;
++      r.polygon = pp.poly.map((q) => ({ x: Math.round(U(q.x) * k), y: Math.round(U(q.y) * k) }));
++    }
++    // Замкнутая жирными стенами область без своей зоны (санузел, заставленный сантехникой: пола
++    // между приборами мало, и затравки там нет) — отдельное помещение.
++    const left = newBin(w, h);
++    // Всё, что внутри не занято зонами и не улица, — независимо от линий внутри (сантехника).
++    // Стены (уже 0,6 м) отсекает открытие ниже.
++    for (let i = 0; i < n; i++) left.d[i] = !own[i] && !street.has(roomPx[i]) && !bold.d[i] ? 1 : 0;
++    const { labels: ll, comps: lc } = components(openBin(left, Math.max(3, Math.round(0.15 * pxPerM))));
++    let nid = Math.max(0, ...pxPolys.map((p) => p.id), ...exteriorIds) + 1;
++    const ringK = Math.max(3, Math.round(0.3 * pxPerM)) * 2 + 1;
++    for (const c of lc) {
++      if (c.area < 0.7 * pxPerM * pxPerM || c.area > 12 * pxPerM * pxPerM) continue;
++      if (c.x0 === 0 || c.y0 === 0 || c.x1 === w - 1 || c.y1 === h - 1) continue;
++      // Полосы окон и проёмов (уже ~0,9 м) — не помещения.
++      if (Math.min(c.x1 - c.x0, c.y1 - c.y0) < 0.9 * pxPerM) continue;
++      // Рядом с квартирой: у неё уже есть помещения по соседству (проверка кольцом ниже).
++      const one = newBin(w, h);
++      for (let i = 0; i < n; i++) if (ll[i] === c.id) one.d[i] = 1;
++      // Вокруг — стены и помещения, а не улица.
++      const ring = dilate(one, ringK);
++      let st = 0, rm = 0, tot = 0;
++      for (let i = 0; i < n; i++) if (ring.d[i] && !one.d[i]) { tot++; if (street.has(roomPx[i])) st++; else if (own[i]) rm++; }
++      if (!tot || st > 0.55 * tot || rm < 0.1 * tot) continue; // у наружной стены снаружи — улица
++      const lab = new Int32Array(n);
++      for (let i = 0; i < n; i++) if (one.d[i]) lab[i] = 1;
++      const poly = labelPolygon(lab, w, h, 1, cell);
++      if (!poly || poly.length < 4) continue;
++      const mm = poly.map((q) => ({ x: Math.round(U(q.x) * k), y: Math.round(U(q.y) * k) }));
++      if (polyArea(mm) / 1e6 < 1) continue;
++      const id = nid++;
++      rooms.push({ id: `r${id}`, name: 'Помещение', type: 'other', polygon: mm, ...prov(inp.page) });
++      pxPolys.push({ id, poly });
++      paint(poly, id);
++    }
++  }
++
+   // Окна: на наружной стороне комнаты в полосе стены — несколько параллельных тонких линий
+   // (остекление), в отличие от сплошной или двухконтурной стены.
+   const bandPx = Math.max(4, Math.round(0.6 * pxPerM));
