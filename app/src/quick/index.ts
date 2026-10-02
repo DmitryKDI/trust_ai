@@ -223,7 +223,33 @@ function quickPlanCore(inp: QuickInput): QuickResult {
     for (let i = 0; i < n; i++) free.d[i] = solid.d[i] && !small[solidComps.labels[i]] ? 0 : 1;
     const k = Math.max(3, Math.round(0.9 * pxPerM));
     const seeds = openBin(free, k);
+    // Санузел: пол вдоль ванны и унитаза уже 0,9 м — крупной затравки там нет, и коридор съедает
+    // санузел. Сантехника — мелкий замкнутый контур (карман пола внутри линии); считаем карман
+    // вместе с контуром полом и ищем затравку мельче (0,6 м: дверь санузла уже). Берём её, только
+    // если в ней есть сантехника и она не связана с крупными затравками.
+    const onFix = newBin(w, h); // пиксели затравки санузла на контурах сантехники — не пол
+    {
+      const m2 = pxPerM * pxPerM;
+      const fc = components(free), mark = new Uint8Array(fc.comps.length + 1);
+      for (const c of fc.comps) {
+        const cw = c.x1 - c.x0 + 1, ch = c.y1 - c.y0 + 1;
+        if (c.x0 === 0 || c.y0 === 0 || c.x1 === w - 1 || c.y1 === h - 1) continue;
+        // Стёкла окон — длинные узкие карманы: не сантехника.
+        if (c.area >= 0.02 * m2 && c.area <= 0.8 * m2 && Math.max(cw, ch) <= 2 * pxPerM && Math.min(cw, ch) >= 0.22 * pxPerM && Math.max(cw, ch) <= 4 * Math.min(cw, ch)) mark[c.id] = 1;
+      }
+      const fx = newBin(w, h);
+      for (let i = 0; i < n; i++) if (mark[fc.labels[i]]) fx.d[i] = 1;
+      const gross = dilate(fx, 2 * Math.max(1, Math.round(0.12 * pxPerM)) + 1);
+      for (let i = 0; i < n; i++) if (free.d[i]) gross.d[i] = 1;
+      const { labels: l6, comps: c6 } = components(openBin(gross, Math.max(3, Math.round(0.6 * pxPerM))));
+      const bad = new Uint8Array(c6.length + 1), fix = new Uint8Array(c6.length + 1);
+      for (let i = 0; i < n; i++) if (l6[i]) { if (seeds.d[i]) bad[l6[i]] = 1; if (fx.d[i]) fix[l6[i]] = 1; }
+      const ok = new Uint8Array(c6.length + 1);
+      for (const c of c6) if (!bad[c.id] && fix[c.id] && c.area >= 1.0 * m2) ok[c.id] = 1;
+      for (let i = 0; i < n; i++) if (ok[l6[i]]) { seeds.d[i] = 1; if (!free.d[i]) onFix.d[i] = 1; }
+    }
     const { labels: lab, comps } = components(seeds);
+    for (let i = 0; i < n; i++) if (onFix.d[i]) lab[i] = 0;
     labels = lab;
     exteriorIds = new Set(comps.filter(isOutside).map((c) => c.id));
     seedCount = comps.length;
@@ -623,11 +649,13 @@ function quickPlanCore(inp: QuickInput): QuickResult {
     };
     const deg = new Map<string, number>();
     for (const o of openings) if (o.type === 'door') for (const r of sides(o)) if (r) deg.set(r.id, (deg.get(r.id) ?? 0) + 1);
-    const hub = [...deg.entries()].sort((a, b) => b[1] - a[1])[0];
+    // Прихожая и коридор оба «узловые»: пробуем помещения по убыванию числа дверей.
+    const hubs = [...deg.entries()].sort((a, b) => b[1] - a[1]).filter((x) => x[1] >= 2);
     // Масштаб здесь ещё не уточнён — ширину сравниваем с медианой дверей этого же плана.
     const dl = openings.filter((o) => o.type === 'door').map((o) => Math.hypot(o.b.x - o.a.x, o.b.y - o.a.y)).sort((a, b) => a - b);
     const typ = dl.length ? dl[Math.floor(dl.length / 2)] : 0;
-    if (hub && hub[1] >= 2 && typ > 0) {
+    for (const hub of typ > 0 ? hubs : []) {
+      if (ent.length) break;
       const cand = openings
         .filter((o) => o.type === 'window')
         .map((o) => ({ o, len: Math.hypot(o.b.x - o.a.x, o.b.y - o.a.y), s: sides(o) }))
