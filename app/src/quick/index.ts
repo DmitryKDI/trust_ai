@@ -280,6 +280,40 @@ function quickPlanCore(inp: QuickInput): QuickResult {
   };
   const roomIds = [...new Set(labels)].filter((l) => l > 0 && !exteriorIds.has(l) && inCore(l));
 
+  // 3б. Незанятый пол внутри квартиры — отдельное помещение. Узкий коридор (около 1 м) теряет
+  // затравку при открытии, а двери-чёрточки не дают соседям его занять: он остаётся «ничьим».
+  // Полоски внутри двойных стен (уже 0,5 м) и мелочь (меньше 1 м²) отбрасываются.
+  {
+    const left = newBin(w, h);
+    for (let i = 0; i < n; i++) left.d[i] = free.d[i] && labels[i] === 0 ? 1 : 0;
+    const kl = Math.max(3, Math.round(0.5 * pxPerM));
+    const { labels: ll, comps: lc } = components(openBin(left, kl));
+    // Внутри квартиры кусок пола окружён помещениями; коробки размерных линий снаружи — «улицей».
+    // Смотрим полосу 0,8 м вокруг куска: доля улицы мала, доля помещений заметна.
+    const roomSet = new Set(roomIds);
+    const ringK = Math.max(3, Math.round(0.8 * pxPerM)) * 2 + 1;
+    let nextId = Math.max(0, ...roomIds, ...exteriorIds) + 1;
+    for (const c of lc) {
+      if (c.area < 1.0 * pxPerM * pxPerM || c.x0 === 0 || c.y0 === 0 || c.x1 === w - 1 || c.y1 === h - 1) continue;
+      if (core && (c.x1 < core.x0 - m || c.x0 > core.x1 + m || c.y1 < core.y0 - m || c.y0 > core.y1 + m)) continue;
+      const one = newBin(w, h);
+      for (let i = 0; i < n; i++) one.d[i] = ll[i] === c.id ? 1 : 0;
+      const ring = dilate(one, ringK);
+      let ext = 0, rm = 0, tot = 0;
+      for (let i = 0; i < n; i++) {
+        if (!ring.d[i] || one.d[i]) continue;
+        tot++;
+        if (exteriorIds.has(labels[i])) ext++; else if (roomSet.has(labels[i])) rm++;
+      }
+      if (!tot || ext > 0.3 * tot || rm < 0.2 * tot) continue;
+      const id = nextId++;
+      let cnt = 0;
+      for (let i = 0; i < n; i++) if (ll[i] === c.id) { labels[i] = id; cnt++; }
+      area.set(id, cnt);
+      roomIds.push(id);
+    }
+  }
+
   // 4. Дверные проёмы: где две метки соприкасаются через свободные пиксели.
   const U = (px: number) => px / inp.pxPerUnit; // пиксели распознавания → единицы листа
   const k = mmPerPx * inp.pxPerUnit; // мм на единицу листа
@@ -333,6 +367,46 @@ function quickPlanCore(inp: QuickInput): QuickResult {
   for (let i = 0; i < n; i++) passable[i] = thickWalls.d[i] ? 0 : 1;
   const through = labels.slice();
   grow(through, passable, w, h);
+
+  // 4а. Зоны, разделённые одной тонкой линией почти по всей стороне (размерная линия внутри
+  // комнаты, а не стена — у стены есть толщина), — одно помещение.
+  {
+    const bx = labelBoxes(labels, w);
+    const parent = new Map<number, number>();
+    const best = new Map<number, { to: number; len: number }>();
+    const find = (x: number): number => { while (parent.has(x)) x = parent.get(x)!; return x; };
+    for (const [key, c] of contactsOf(through, w, h)) {
+      const [la, lb] = key.split(':').map(Number);
+      if (!roomSet.has(la) || !roomSet.has(lb)) continue;
+      let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+      for (let i = 0; i < c.xs.length; i++) { x0 = Math.min(x0, c.xs[i]); x1 = Math.max(x1, c.xs[i]); y0 = Math.min(y0, c.ys[i]); y1 = Math.max(y1, c.ys[i]); }
+      const horiz = x1 - x0 >= y1 - y0, len = horiz ? x1 - x0 : y1 - y0, across = horiz ? y1 - y0 : x1 - x0;
+      if (len < 1.5 * pxPerM || across > 0.3 * pxPerM) continue;
+      const A = bx.get(la), B = bx.get(lb);
+      if (!A || !B) continue;
+      const side = Math.min(horiz ? A.x1 - A.x0 : A.y1 - A.y0, horiz ? B.x1 - B.x0 : B.y1 - B.y0);
+      if (len < 0.7 * side) continue;
+      // Приклеиваем только узкую полосу (уже 1,1 м) к соседу — две полноценные комнаты не склеиваются.
+      const narrow = (b: { x0: number; y0: number; x1: number; y1: number }) => Math.min(b.x1 - b.x0, b.y1 - b.y0) < 1.1 * pxPerM;
+      for (const [strip, room, sb, rb] of [[la, lb, A, B], [lb, la, B, A]] as const) {
+        if (!narrow(sb) || narrow(rb)) continue;
+        const prev = best.get(strip);
+        if (!prev || len > prev.len) best.set(strip, { to: room, len });
+      }
+    }
+    for (const [strip, { to }] of best) parent.set(strip, to);
+    if (parent.size) {
+      for (let i = 0; i < n; i++) { if (labels[i] > 0) labels[i] = find(labels[i]); if (through[i] > 0) through[i] = find(through[i]); }
+      for (const [id] of parent) { const j = roomIds.indexOf(id); if (j >= 0) roomIds.splice(j, 1); roomSet.delete(id); }
+      area.clear();
+      for (let i = 0; i < n; i++) if (labels[i] > 0) area.set(labels[i], (area.get(labels[i]) ?? 0) + 1);
+      // Двери между склеенными зонами больше не нужны.
+      for (const [key, o] of [...doorOf]) {
+        const [la, lb] = key.split(':').map(Number);
+        if (find(la) === find(lb)) { doorOf.delete(key); const j = openings.indexOf(o); if (j >= 0) openings.splice(j, 1); }
+      }
+    }
+  }
   const gapOpenings: { o: Opening; key: string; outside: boolean }[] = [];
   for (const [key, c] of contactsOf(through, w, h)) {
     const [la, lb] = key.split(':').map(Number);
