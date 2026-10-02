@@ -133,7 +133,7 @@ function diagonals(poly: Pt[], minor: number, major: number, minLen: number): Pt
       j++;
     }
     const a = poly[(start + i) % n], b = poly[(start + j) % n];
-    // Настоящий скос — длинная правильная лесенка (не меньше четырёх ступенек) с заметным
+    // Настоящий скос — длинная правильная лесенка (не меньше шести ступенек) с заметным
     // смещением по обеим осям; пара ступенек у дверного полотна или окна — не скос.
     const ex = Math.abs(b.x - a.x), ey = Math.abs(b.y - a.y);
     // Ступеньки ровно вдоль прямой: ни одна вершина не отходит от линии a–b дальше ступеньки
@@ -144,7 +144,7 @@ function diagonals(poly: Pt[], minor: number, major: number, minLen: number): Pt
       const q = poly[(start + k) % n];
       dev = Math.max(dev, Math.abs((b.x - a.x) * (a.y - q.y) - (a.x - q.x) * (b.y - a.y)) / L);
     }
-    if (j - i >= 7 && L >= minLen && Math.min(ex, ey) >= 1.5 * minor && dev <= minor) {
+    if (j - i >= 12 && L >= minLen && Math.min(ex, ey) >= 1.5 * minor && dev <= minor) {
       const m = (k: number) => { const p = poly[k % n], q = poly[(k + 1) % n]; return { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 }; };
       out.push(a, m(start + i), m(start + j - 1));
       i = j;
