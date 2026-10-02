@@ -4,7 +4,7 @@ import type { Opening, PlanGeometry, Pt, Room } from '../model/types';
 import { emptyGeometry, uid } from '../model/defaults';
 import { closeDir, components, dilate, erode, newBin, or, type Bin } from '../recognize/raster';
 import { assignTypes } from '../recognize/index';
-import { simplifyRing, union, fromRing, toGeom, polyArea } from '../geometry/poly';
+import { difference, simplifyRing, union, fromRing, toGeom, polyArea } from '../geometry/poly';
 import { scaleGeometry } from '../editor/ops';
 
 export interface QuickInput {
@@ -492,6 +492,44 @@ function quickPlanCore(inp: QuickInput): QuickResult {
     if (polyArea(mm) / 1e6 < 1) continue;
     rooms.push({ id: `r${id}`, name: 'Помещение', type: 'other', polygon: mm, ...prov(inp.page) });
     pxPolys.push({ id, poly });
+  }
+
+  // 5а. Углы и края, вырезанные цифрами площадей: недостающие до прямоугольника помещения куски
+  // дозаполняются, если там пол (а не стена) и они не заняты соседями. Г-образные комнаты
+  // не трогаем: недостающая часть у них велика и занята стеной или соседней комнатой.
+  const wallNet = solidComps.comps.reduce((a, c) => (c.area > a.area ? c : a), solidComps.comps[0])?.id ?? -1;
+  for (const pp of pxPolys) {
+    const xs = pp.poly.map((q) => q.x), ys = pp.poly.map((q) => q.y);
+    const bb = [{ x: Math.min(...xs), y: Math.min(...ys) }, { x: Math.max(...xs), y: Math.min(...ys) }, { x: Math.max(...xs), y: Math.max(...ys) }, { x: Math.min(...xs), y: Math.max(...ys) }];
+    const bbA = polyArea(bb);
+    const others = pxPolys.filter((o) => o !== pp).map((o) => toGeom(o.poly));
+    const miss = difference(toGeom(bb), toGeom(pp.poly), ...others);
+    const add: Pt[][] = [];
+    for (const part of miss) {
+      const ring = fromRing(part[0]);
+      const a = polyArea(ring);
+      if (a < cell * cell * 4 || a > 0.2 * bbA) continue;
+      // В куске не должно быть сплошной стены (пикселей основной сети стен).
+      const px = ring.map((q) => q.x), py = ring.map((q) => q.y);
+      let wall = 0, outside = 0, all = 0;
+      for (let y = Math.max(0, Math.floor(Math.min(...py))); y <= Math.min(h - 1, Math.ceil(Math.max(...py))); y += 2)
+        for (let x = Math.max(0, Math.floor(Math.min(...px))); x <= Math.min(w - 1, Math.ceil(Math.max(...px))); x += 2) {
+          if (!pointIn({ x: x + 0.5, y: y + 0.5 }, ring)) continue;
+          const i = y * w + x;
+          all++;
+          if (solid.d[i] && solidComps.labels[i] === wallNet) wall++;
+          if (exteriorIds.has(labels[i])) outside++;
+        }
+      // Цифры у самой стены при сглаживании сливаются с ней, поэтому «стены» в куске под надписью
+      // бывает до 70 %; настоящая стена занимает кусок почти целиком (90–100 %).
+      if (all && a <= 1.6 * pxPerM * pxPerM && wall <= 0.75 * all && outside <= 0.1 * all) add.push(ring);
+    }
+    if (!add.length) continue;
+    const u = union(toGeom(pp.poly), ...add.map((r) => toGeom(r)));
+    if (u.length !== 1) continue;
+    pp.poly = simplifyRing(fromRing(u[0][0]), 0.5);
+    const r = rooms.find((x) => x.id === `r${pp.id}`)!;
+    r.polygon = pp.poly.map((q) => ({ x: Math.round(U(q.x) * k), y: Math.round(U(q.y) * k) }));
   }
 
   // Окна: на наружной стороне комнаты в полосе стены — несколько параллельных тонких линий
