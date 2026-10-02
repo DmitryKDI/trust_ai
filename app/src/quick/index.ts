@@ -167,6 +167,47 @@ function straighten(poly: Pt[], minStep: number): Pt[] {
   return pts;
 }
 
+/**
+ * Порог «тонкая линия / стена» по самому плану. Толщины штрихов (удвоенное расстояние до фона
+ * на гребне) дают пики: тонкие линии (сантехника, полотна дверей, текст), перегородки, несущие.
+ * Ищем провал после пика тонких линий. Нет явного провала (план начерчен одной толщиной) — null.
+ */
+function strokeThreshold(free: Uint8Array, w: number, h: number, pxPerM: number): number | null {
+  const n = w * h, dt = new Float32Array(n);
+  for (let i = 0; i < n; i++) dt[i] = free[i] ? 0 : 1e9;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x; if (!dt[i]) continue; let v = dt[i];
+    if (x) v = Math.min(v, dt[i - 1] + 1); if (y) v = Math.min(v, dt[i - w] + 1);
+    if (x && y) v = Math.min(v, dt[i - w - 1] + 1.414); if (y && x < w - 1) v = Math.min(v, dt[i - w + 1] + 1.414);
+    dt[i] = v;
+  }
+  for (let y = h - 1; y >= 0; y--) for (let x = w - 1; x >= 0; x--) {
+    const i = y * w + x; if (!dt[i]) continue; let v = dt[i];
+    if (x < w - 1) v = Math.min(v, dt[i + 1] + 1); if (y < h - 1) v = Math.min(v, dt[i + w] + 1);
+    if (x < w - 1 && y < h - 1) v = Math.min(v, dt[i + w + 1] + 1.414); if (y < h - 1 && x) v = Math.min(v, dt[i + w - 1] + 1.414);
+    dt[i] = v;
+  }
+  const hist = new Float64Array(256);
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+    const i = y * w + x, v = dt[i];
+    if (v && v < 1e8 && v >= dt[i - 1] && v >= dt[i + 1] && v >= dt[i - w] && v >= dt[i + w]) hist[Math.min(255, Math.round(v))]++;
+  }
+  // Сглаживание (соседние значения) — у штрихов в JPEG толщина «гуляет».
+  const sm = (t: number) => (hist[t - 1] ?? 0) + hist[t] + (hist[t + 1] ?? 0);
+  // Пик тонких линий: полутолщина от 1,5 px до 6 см.
+  let m1 = -1;
+  for (let t = 2; t <= Math.max(2, Math.round(0.06 * pxPerM)); t++) if (m1 < 0 || sm(t) > sm(m1)) m1 = t;
+  if (m1 < 0 || sm(m1) < 50) return null;
+  let T = -1;
+  for (let t = Math.ceil(1.5 * m1); t <= 3 * m1 && t < 255; t++) if (T < 0 || sm(t) < sm(T)) T = t;
+  if (T < 0 || sm(T) > 0.35 * sm(m1)) return null;
+  // Выше порога должна остаться заметная масса — стены (по площади штрихов).
+  let lo = 0, hi = 0;
+  for (let t = 1; t < 256; t++) (t < T ? (lo += hist[t] * t) : (hi += hist[t] * t));
+  if (hi < 0.3 * (lo + hi)) return null;
+  return 2 * T; // полная толщина в пикселях
+}
+
 function quickPlanCore(inp: QuickInput): QuickResult {
   const t0 = Date.now();
   const { w, h, rgba } = inp;
@@ -507,12 +548,87 @@ function quickPlanCore(inp: QuickInput): QuickResult {
     if (!g.outside) doorOf.set(g.key, g.o);
   }
 
-  // 5. Полигоны помещений (мм).
+  // 5. Полигоны помещений (мм). Комната — всё внутри её стен: сантехника, мебель, цифры площадей
+  // отдаются помещению, к которому прилегают (не дальше 0,8 м от его пола). Толстые стены и
+  // открытый «ничей» пол (помещение без своей метки) не отдаются.
+  const roomPx = labels.slice();
+  {
+    const pocket = new Uint8Array(n);
+    const { labels: fl, comps: fc } = components(free);
+    const small = new Uint8Array(fc.length + 1);
+    for (const c of fc) if (c.area <= 0.8 * pxPerM * pxPerM) small[c.id] = 1;
+    for (let i = 0; i < n; i++) if (fl[i] && small[fl[i]] && labels[i] === 0) pocket[i] = 1;
+    // Что здесь стена, решаем по толщинам линий этого же плана: контуры сантехники и мебели
+    // бывают толще общего порога, но заметно тоньше перегородок.
+    const T = strokeThreshold(free.d, w, h, pxPerM);
+    let core = thickWalls;
+    if (T) {
+      const wl = newBin(w, h);
+      for (let i = 0; i < n; i++) wl.d[i] = free.d[i] ? 0 : 1;
+      const tw = openBin(wl, T);
+      core = newBin(w, h);
+      for (let i = 0; i < n; i++) core.d[i] = thickWalls.d[i] && tw.d[i] ? 1 : 0;
+    }
+    const allowed = new Uint8Array(n);
+    for (let i = 0; i < n; i++) allowed[i] = (!free.d[i] && !core.d[i]) || pocket[i] ? 1 : 0;
+    // Окна и проёмы — разрыв в стене (до 5 м: окно рядом с балконной дверью) между двумя её кусками на одной линии. Линии
+    // остекления в таком разрыве — граница помещения, а не предмет: их не отдаём никому.
+    {
+      const L = Math.max(3, Math.round(0.5 * pxPerM)), G = Math.round(5 * pxPerM);
+      for (const horiz of [true, false]) {
+        const A = horiz ? h : w, B = horiz ? w : h;
+        const at = (a: number, b: number) => (horiz ? a * w + b : b * w + a);
+        for (let a = 0; a < A; a++) {
+          let prevEnd = -1;
+          for (let b = 0; b < B; ) {
+            if (!core.d[at(a, b)]) { b++; continue; }
+            let e = b;
+            while (e < B && core.d[at(a, e)]) e++;
+            if (e - b >= L) {
+              if (prevEnd >= 0 && b - prevEnd <= G) for (let q = prevEnd; q < b; q++) allowed[at(a, q)] = 0;
+              prevEnd = e;
+            }
+            b = e;
+          }
+        }
+      }
+    }
+    // Отдельно стоящее (не связанное с сетью стен) и окружённое одним помещением — его: цифры
+    // площадей, мебель, сантехника. По толщине их от стен не отличить — крупный шрифт толстый.
+    {
+      const bar = newBin(w, h);
+      for (let i = 0; i < n; i++) bar.d[i] = free.d[i] ? 0 : 1;
+      const { labels: bl, comps: bc } = components(bar);
+      const net = bc.reduce((a, c) => (c.area > a.area ? c : a), bc[0])?.id ?? -1;
+      const owner = new Int32Array(bc.length + 1);
+      for (let i = 0; i < n; i++) {
+        const c = bl[i];
+        if (!c || c === net || owner[c] < 0) continue;
+        const x = i % w;
+        for (const q of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, i - w, i + w]) {
+          if (q < 0 || q >= n || labels[q] <= 0) continue;
+          if (!owner[c]) owner[c] = labels[q];
+          else if (owner[c] !== labels[q]) { owner[c] = -1; break; }
+        }
+      }
+      for (let i = 0; i < n; i++) if (bl[i] && owner[bl[i]] > 0 && !roomPx[i]) roomPx[i] = owner[bl[i]];
+    }
+    let frontier: number[] = [];
+    for (let i = 0; i < n; i++) if (roomPx[i] > 0) frontier.push(i);
+    for (let step = Math.round(0.8 * pxPerM); step > 0 && frontier.length; step--) {
+      const next: number[] = [];
+      for (const p of frontier) {
+        const x = p % w, l = roomPx[p];
+        for (const q of [x > 0 ? p - 1 : -1, x < w - 1 ? p + 1 : -1, p - w, p + w]) if (q >= 0 && q < n && allowed[q] && roomPx[q] === 0) { roomPx[q] = l; next.push(q); }
+      }
+      frontier = next;
+    }
+  }
   const cell = Math.max(2, Math.round(pxPerM * 0.1));
   const rooms: Room[] = [];
   const pxPolys: { id: number; poly: Pt[] }[] = [];
   for (const id of roomIds) {
-    const poly = labelPolygon(labels, w, h, id, cell);
+    const poly = labelPolygon(roomPx, w, h, id, cell);
     if (!poly || poly.length < 4) continue;
     const mm = poly.map((q) => ({ x: Math.round(U(q.x) * k), y: Math.round(U(q.y) * k) }));
     if (polyArea(mm) / 1e6 < 1) continue;
@@ -548,7 +664,21 @@ function quickPlanCore(inp: QuickInput): QuickResult {
         }
       // Цифры у самой стены при сглаживании сливаются с ней, поэтому «стены» в куске под надписью
       // бывает до 70 %; настоящая стена занимает кусок почти целиком (90–100 %).
-      if (all && a <= 1.6 * pxPerM * pxPerM && wall <= 0.75 * all && outside <= 0.1 * all) add.push(ring);
+      if (all && a <= 1.6 * pxPerM * pxPerM && wall <= 0.75 * all && outside <= 0.1 * all) { add.push(ring); continue; }
+      // Мебель и сантехника вплотную к стене сливаются с ней: неглубокий вырез (до 0,75 м — глубина
+      // мебели) тоже дозаполняем, если рядом с ним (0,3 м) нет соседнего помещения — иначе это
+      // перегородка между комнатами.
+      const bw = Math.max(...px) - Math.min(...px), bh = Math.max(...py) - Math.min(...py);
+      if (!all || outside > 0.1 * all || Math.min(bw, bh) > 0.75 * pxPerM || a > 1.2 * pxPerM * pxPerM) continue;
+      const mg = Math.round(0.3 * pxPerM);
+      let other = 0, tot = 0;
+      for (let y = Math.max(0, Math.floor(Math.min(...py)) - mg); y <= Math.min(h - 1, Math.ceil(Math.max(...py)) + mg); y += 2)
+        for (let x = Math.max(0, Math.floor(Math.min(...px)) - mg); x <= Math.min(w - 1, Math.ceil(Math.max(...px)) + mg); x += 2) {
+          const l = roomPx[y * w + x];
+          tot++;
+          if (l > 0 && l !== pp.id && (roomSet.has(l) || exteriorIds.has(l))) other++;
+        }
+      if (other <= 0.03 * tot) add.push(ring);
     }
     if (!add.length) continue;
     const u = union(toGeom(pp.poly), ...add.map((r) => toGeom(r)));
