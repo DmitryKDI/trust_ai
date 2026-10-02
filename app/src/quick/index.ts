@@ -294,22 +294,51 @@ function quickPlanCore(inp: QuickInput): QuickResult {
     const midN = new Map<number, number>();
     for (let i = 0, p = 0; i < n; i++, p += 4) if (mid.d[i]) { const b = binOf(p); midN.set(b, (midN.get(b) ?? 0) + 1); }
     for (const [b, t] of tot) if (t > 200 && (midN.get(b) ?? 0) >= 0.4 * t) floorBin.add(b);
+    // Заметная цветная (не серая) светлая заливка на цветной планировке — тоже пол: санузел с
+    // сантехникой узок и в «широких» областях почти не встречается.
+    // Заметная цветная (не серая) светлая заливка на цветной планировке — тоже пол: санузел и
+    // коридор узки и в «широких» областях почти не встречаются. Заливка стен техплана (розовая,
+    // серая) — полосы ~0,2–0,4 м: её отсекает открытие ~0,3 м.
+    const nar = openBin(light, Math.max(5, Math.round(Math.min(w, h) / 36)));
+    const narN = new Map<number, number>();
+    for (let i = 0, p = 0; i < n; i++, p += 4) if (nar.d[i]) { const b = binOf(p); narN.set(b, (narN.get(b) ?? 0) + 1); }
+    for (const [b, t] of tot) {
+      const r = ((b >> 8) << 4) + 8, g = (((b >> 4) & 15) << 4) + 8, bl = ((b & 15) << 4) + 8;
+      if (t >= Math.max(200, 0.002 * n) && Math.max(r, g, bl) - Math.min(r, g, bl) >= 16 && (narN.get(b) ?? 0) >= 0.5 * t) floorBin.add(b);
+    }
   }
   for (let i = 0, p = 0; i < n; i++, p += 4) if (fill.d[i] || (light.d[i] && floorBin.has(binOf(p)))) barrier.d[i] = 0;
   // Цвет пола по пикселю: заливки близких оттенков (соседние ячейки цвета — JPEG) — один цвет,
   // белая бумага — цвет 0. Мелкие пятна (текст, сглаживание на стыке цветов) — «любой» (-1).
   // На цветных планировках разный цвет пола — разные помещения.
   const cls = new Int32Array(n);
+  let colored = false; // есть цветная заливка пола
   {
-    const bins = [...floorBin], par = new Map(bins.map((b) => [b, b]));
-    const root = (b: number): number => { while (par.get(b) !== b) b = par.get(b)!; return b; };
-    for (const a of bins) for (const b of bins) {
-      if (a >= b) continue;
-      if (Math.abs((a >> 8) - (b >> 8)) <= 1 && Math.abs(((a >> 4) & 15) - ((b >> 4) & 15)) <= 1 && Math.abs((a & 15) - (b & 15)) <= 1) par.set(root(b), root(a));
+    // Основные цвета пола — пики гистограммы (шаг 8 по каналу), не ближе 10 друг к другу:
+    // на цветных планировках соседние комнаты отличаются всего на 8–16 единиц. Каждый пиксель
+    // пола относим к ближайшему пику; далёкие от всех (сглаживание) — «любой» цвет.
+    const isFloor = (i: number, p: number) => !barrier.d[i] && light.d[i] && floorBin.has(binOf(p));
+    const fine = new Map<number, number>();
+    for (let i = 0, p = 0; i < n; i++, p += 4) if (isFloor(i, p)) { const k = ((rgba[p] >> 3) << 10) | ((rgba[p + 1] >> 3) << 5) | (rgba[p + 2] >> 3); fine.set(k, (fine.get(k) ?? 0) + 1); }
+    const rgbOf = (k: number) => [((k >> 10) << 3) + 4, (((k >> 5) & 31) << 3) + 4, ((k & 31) << 3) + 4];
+    const centers: number[][] = [];
+    for (const [k, c] of [...fine].sort((x, y) => y[1] - x[1])) {
+      if (c < Math.max(200, 0.003 * n)) break;
+      const q = rgbOf(k);
+      if (centers.every((z) => Math.hypot(z[0] - q[0], z[1] - q[1], z[2] - q[2]) >= 10)) centers.push(q);
     }
-    const ids = new Map<number, number>();
-    for (const b of bins) { const r = root(b); if (!ids.has(r)) ids.set(r, ids.size + 1); }
-    for (let i = 0, p = 0; i < n; i++, p += 4) cls[i] = barrier.d[i] ? -1 : floorBin.has(binOf(p)) ? ids.get(root(binOf(p)))! : 0;
+    colored = centers.length > 0;
+    for (let i = 0, p = 0; i < n; i++, p += 4) {
+      if (barrier.d[i]) { cls[i] = -1; continue; }
+      if (!isFloor(i, p)) { cls[i] = 0; continue; }
+      let best = -1, bd = 15;
+      for (let c = 0; c < centers.length; c++) {
+        const z = centers[c], d = Math.hypot(z[0] - rgba[p], z[1] - rgba[p + 1], z[2] - rgba[p + 2]);
+        if (d < bd) { bd = d; best = c + 1; }
+      }
+      cls[i] = best;
+    }
+    const ids = { size: centers.length };
     // Пятна меньше ~1 м² (внутри ванны, буквы) — «любой» цвет.
     const minSpot = Math.max(50, Math.round(Math.min(w, h) * Math.min(w, h) / 144));
     for (let c = 0; c <= ids.size; c++) {
@@ -317,7 +346,8 @@ function quickPlanCore(inp: QuickInput): QuickResult {
       for (let i = 0; i < n; i++) if (cls[i] === c) m.d[i] = 1;
       const { labels: ml, comps: mc } = components(m);
       const tiny = new Uint8Array(mc.length + 1);
-      for (const k of mc) if (k.area < minSpot) tiny[k.id] = 1;
+      // Цветной пол — от ~0,3 м² (туалет бывает около метра); белые пятна (внутри ванны, буквы) — до ~1 м².
+      for (const k of mc) if (k.area < (c > 0 ? minSpot / 4 : minSpot)) tiny[k.id] = 1;
       for (let i = 0; i < n; i++) if (ml[i] && tiny[ml[i]]) cls[i] = -1;
     }
   }
@@ -411,9 +441,17 @@ function quickPlanCore(inp: QuickInput): QuickResult {
     for (let y = 0; y < h; y++) for (const x of [0, w - 1]) if (free.d[y * w + x] && !labels[y * w + x]) labels[y * w + x] = edgeId;
     exteriorIds.add(edgeId);
     classOfLabels(labels, new Set([edgeId]));
+    // Улица — белая бумага: на цветной лоджии или балконе она не растёт.
+    if (colored) labelCls.set(edgeId, 0);
     grow(labels, free.d, w, h, cls, labelCls);
     // «Снаружи» уточняем по итоговым областям (затравка после открытия могла не дойти до рамки).
     for (const [id, b] of labelBoxes(labels, w)) if (isOutside(b)) exteriorIds.add(id);
+    // Цветная зона у края чертежа (лоджия, балкон) — помещение, а не поле листа: улица на
+    // цветной планировке белая. Исключение — то, что касается края картинки.
+    if (colored) for (const [id, b] of labelBoxes(labels, w)) {
+      const c = labelCls.get(id);
+      if (id !== edgeId && c !== undefined && c > 0 && b.x0 > 0 && b.y0 > 0 && b.x1 < w - 1 && b.y1 < h - 1) exteriorIds.delete(id);
+    }
     let apt = 0;
     for (let i = 0; i < n; i++) if (labels[i] > 0 && !exteriorIds.has(labels[i])) apt++;
     if (apt < 100) break;
@@ -432,6 +470,8 @@ function quickPlanCore(inp: QuickInput): QuickResult {
     if (l > 0 && !exteriorIds.has(l) && (area.get(l) ?? 0) < minRoomPx) labels[i] = 0;
   }
   grow(labels, free.d, w, h, cls, labelCls);
+  // Остатки (белые полосы проёмов между цветными зонами) — ближайшей зоне, без учёта цвета.
+  grow(labels, free.d, w, h);
 
   // Соприкосновение шире 1,4 м — это не дверь, а одна комната, разрезанная текстом или значком: склеиваем.
   let contacts = contactsOf(labels, w, h);
@@ -464,7 +504,45 @@ function quickPlanCore(inp: QuickInput): QuickResult {
     const b = boxes.get(l)!;
     return b.x1 >= core.x0 - m && b.x0 <= core.x1 + m && b.y1 >= core.y0 - m && b.y0 <= core.y1 + m;
   };
-  const roomIds = [...new Set(labels)].filter((l) => l > 0 && !exteriorIds.has(l) && inCore(l));
+  // Цветная планировка: зоны — цветные. Белая бумага, если почти весь пол квартиры залит цветом, —
+  // не помещение (простенок, шахта, поле листа между линиями); цветная зона за рамкой крупных
+  // комнат (лоджия, балкон до 2,5 м) — помещение.
+  classOfLabels(labels, exteriorIds);
+  let tinted = false;
+  if (colored) {
+    let cf = 0, all = 0;
+    for (let i = 0; i < n; i++) if (labels[i] > 0 && !exteriorIds.has(labels[i]) && inCore(labels[i]) && cls[i] >= 0) { all++; if (cls[i] > 0) cf++; }
+    tinted = all > 0 && cf >= 0.6 * all;
+  }
+  const nearCore = (l: number) => {
+    if (!core) return true;
+    const b = boxes.get(l)!, mc = 2.5 * pxPerM;
+    return b.x1 >= core.x0 - mc && b.x0 <= core.x1 + mc && b.y1 >= core.y0 - mc && b.y0 <= core.y1 + mc;
+  };
+  const roomIds = [...new Set(labels)].filter((l) => {
+    if (l <= 0 || exteriorIds.has(l)) return false;
+    const c = labelCls.get(l);
+    return inCore(l) || (colored && c !== undefined && c > 0 && nearCore(l));
+  });
+  // Белая зона на цветной планировке, заметно граничащая с улицей (полоса между стеной и
+  // размерной линией), — не помещение. Белый санузел внутри квартиры окружён помещениями.
+  if (tinted) {
+    const ringK = Math.max(3, Math.round(0.8 * pxPerM)) * 2 + 1;
+    for (const l of [...roomIds]) {
+      if (labelCls.get(l) !== 0) continue;
+      const one = newBin(w, h);
+      for (let i = 0; i < n; i++) if (labels[i] === l) one.d[i] = 1;
+      const ring = dilate(one, ringK);
+      let ext = 0, tot = 0;
+      for (let i = 0; i < n; i++) if (ring.d[i] && !one.d[i] && labels[i] > 0) { tot++; if (exteriorIds.has(labels[i])) ext++; }
+      // Полоса — узкая и длинная; белый санузел у наружной стены тоже граничит с улицей, но он не полоса.
+      const bb = boxes.get(l);
+      const strip = bb ? Math.min(bb.x1 - bb.x0, bb.y1 - bb.y0) < 1.6 * pxPerM && Math.max(bb.x1 - bb.x0, bb.y1 - bb.y0) > 3 * Math.min(bb.x1 - bb.x0, bb.y1 - bb.y0) : false;
+      if (tot && ext > 0.1 * tot && strip) roomIds.splice(roomIds.indexOf(l), 1);
+    }
+  }
+  // Белая бумага на цветной планировке — снаружи квартиры: через неё ищется входная дверь.
+  if (tinted) for (const l of new Set(labels)) if (l > 0 && labelCls.get(l) === 0 && !roomIds.includes(l)) exteriorIds.add(l);
 
   // 3б. Незанятый пол внутри квартиры — отдельное помещение. Узкий коридор (около 1 м) теряет
   // затравку при открытии, а двери-чёрточки не дают соседям его занять: он остаётся «ничьим».
@@ -481,9 +559,14 @@ function quickPlanCore(inp: QuickInput): QuickResult {
     let nextId = Math.max(0, ...roomIds, ...exteriorIds) + 1;
     for (const c of lc) {
       if (c.area < 1.0 * pxPerM * pxPerM || c.x0 === 0 || c.y0 === 0 || c.x1 === w - 1 || c.y1 === h - 1) continue;
-      if (core && (c.x1 < core.x0 - m || c.x0 > core.x1 + m || c.y1 < core.y0 - m || c.y0 > core.y1 + m)) continue;
       const one = newBin(w, h);
-      for (let i = 0; i < n; i++) one.d[i] = ll[i] === c.id ? 1 : 0;
+      // Цветная заливка (лоджия, балкон на цветной планировке) — помещение, даже если снаружи
+      // оно окружено улицей и лежит за рамкой крупных комнат (до 2,5 м).
+      const cc = new Map<number, number>();
+      for (let i = 0; i < n; i++) if (ll[i] === c.id) { one.d[i] = 1; if (cls[i] >= 0) cc.set(cls[i], (cc.get(cls[i]) ?? 0) + 1); }
+      const tint = [...cc].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 0;
+      const mc = tint > 0 ? 2.5 * pxPerM : m;
+      if (core && (c.x1 < core.x0 - mc || c.x0 > core.x1 + mc || c.y1 < core.y0 - mc || c.y0 > core.y1 + mc)) continue;
       const ring = dilate(one, ringK);
       let ext = 0, rm = 0, tot = 0;
       for (let i = 0; i < n; i++) {
@@ -491,7 +574,7 @@ function quickPlanCore(inp: QuickInput): QuickResult {
         tot++;
         if (exteriorIds.has(labels[i])) ext++; else if (roomSet.has(labels[i])) rm++;
       }
-      if (!tot || ext > 0.3 * tot || rm < 0.2 * tot) continue;
+      if (!tot || (tint > 0 ? rm < 0.03 * tot : ext > 0.3 * tot || rm < 0.2 * tot)) continue;
       const id = nextId++;
       let cnt = 0;
       for (let i = 0; i < n; i++) if (ll[i] === c.id) { labels[i] = id; cnt++; }
@@ -500,6 +583,67 @@ function quickPlanCore(inp: QuickInput): QuickResult {
     }
   }
 
+  // 3в. Цветная планировка: пятно одного цвета пола — одна зона. Тонкие линии внутри (метки
+  // дверей, надписи, контуры сантехники — до ~0,12 м) пятно не режут. Мелкие куски (до 3 м²)
+  // пятно без своей зоны (лоджия, санузел, середина
+  // коридора) становится новой зоной. Крупные комнаты одного цвета, соединённые дверью, остаются
+  // раздельными.
+  if (tinted) {
+    const kc = Math.max(3, Math.round(0.12 * pxPerM)) | 1;
+    const minZone = 0.8 * pxPerM * pxPerM;
+    const roomSetC = new Set(roomIds);
+    let nextId = Math.max(0, ...roomIds, ...exteriorIds) + 1;
+    for (let i = 0; i < n; i++) if (labels[i] >= nextId) nextId = labels[i] + 1;
+    let nCls = 0;
+    for (let i = 0; i < n; i++) if (cls[i] > nCls) nCls = cls[i];
+    let changed = false;
+    for (let c = 1; c <= nCls; c++) {
+      const m = newBin(w, h);
+      let any = 0;
+      for (let i = 0; i < n; i++) if (cls[i] === c) { m.d[i] = 1; any++; }
+      if (any < minZone) continue;
+      const mc = erode(dilate(m, kc), kc);
+      const { labels: cl, comps: cc } = components(mc);
+      for (const comp of cc) {
+        if (comp.area < minZone) continue;
+        if (comp.x0 === 0 || comp.y0 === 0 || comp.x1 === w - 1 || comp.y1 === h - 1) continue;
+        // Метки внутри пятна: доля их площади, лежащая в пятне.
+        const inC = new Map<number, number>();
+        for (let i = 0; i < n; i++) if (cl[i] === comp.id && labels[i] > 0) inC.set(labels[i], (inC.get(labels[i]) ?? 0) + 1);
+        const own = [...inC].filter(([l, k]) => roomSetC.has(l) && k >= 0.5 * (area.get(l) ?? Infinity)).sort((a, b) => b[1] - a[1]);
+        if (inC.size && [...inC.keys()].some((l) => exteriorIds.has(l) && (inC.get(l) ?? 0) > 0.3 * comp.area)) continue;
+        let target: number;
+        if (!own.length) {
+          // Пятно никому не принадлежит: внутри квартиры (рядом есть помещения) — новая зона.
+          if ([...inC.keys()].some((l) => roomSetC.has(l))) continue; // это часть чужой зоны
+          target = nextId++;
+          roomIds.push(target);
+          roomSetC.add(target);
+        } else target = own[0][0];
+        // Существующие зоны не склеиваем: одноцветный пол соединяется через дверные проёмы
+        // (ванна и коридор одного цвета), и склейка съедает санузлы.
+        const merge = new Set<number>();
+        for (let i = 0; i < n; i++) {
+          if (cl[i] !== comp.id) continue;
+          const l = labels[i];
+          if (l === target) continue;
+          if (merge.has(l) || (l === 0 && (free.d[i] || cls[i] === c))) { labels[i] = target; changed = true; }
+        }
+        for (const l of merge) {
+          for (let i = 0; i < n; i++) if (labels[i] === l) labels[i] = target;
+          const j = roomIds.indexOf(l);
+          if (j >= 0) roomIds.splice(j, 1);
+          roomSetC.delete(l);
+        }
+      }
+    }
+    if (changed) {
+      area.clear();
+      for (let i = 0; i < n; i++) if (labels[i] > 0) area.set(labels[i], (area.get(labels[i]) ?? 0) + 1);
+      for (const l of [...roomIds]) if ((area.get(l) ?? 0) < minZone) roomIds.splice(roomIds.indexOf(l), 1);
+      contacts = contactsOf(labels, w, h);
+    }
+  }
   // 4. Дверные проёмы: где две метки соприкасаются через свободные пиксели.
   const U = (px: number) => px / inp.pxPerUnit; // пиксели распознавания → единицы листа
   const k = mmPerPx * inp.pxPerUnit; // мм на единицу листа
@@ -561,15 +705,23 @@ function quickPlanCore(inp: QuickInput): QuickResult {
     const parent = new Map<number, number>();
     const best = new Map<number, { to: number; len: number }>();
     const find = (x: number): number => { while (parent.has(x)) x = parent.get(x)!; return x; };
+    classOfLabels(labels, exteriorIds);
     for (const [key, c] of contactsOf(through, w, h)) {
       const [la, lb] = key.split(':').map(Number);
       if (!roomSet.has(la) || !roomSet.has(lb)) continue;
       let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
       for (let i = 0; i < c.xs.length; i++) { x0 = Math.min(x0, c.xs[i]); x1 = Math.max(x1, c.xs[i]); y0 = Math.min(y0, c.ys[i]); y1 = Math.max(y1, c.ys[i]); }
       const horiz = x1 - x0 >= y1 - y0, len = horiz ? x1 - x0 : y1 - y0, across = horiz ? y1 - y0 : x1 - x0;
-      if (len < 1.5 * pxPerM || across > 0.3 * pxPerM) continue;
       const A = bx.get(la), B = bx.get(lb);
       if (!A || !B) continue;
+      // Куски одной цветной зоны, разрезанные тонкой линией поперёк (метка двери, надпись), —
+      // одно помещение: линия идёт почти через всю ширину обоих кусков.
+      const ca = labelCls.get(la);
+      if (colored && ca !== undefined && ca > 0 && ca === labelCls.get(lb) && across <= 0.3 * pxPerM && len >= 0.5 * pxPerM) {
+        const sideMax = Math.max(horiz ? A.x1 - A.x0 : A.y1 - A.y0, horiz ? B.x1 - B.x0 : B.y1 - B.y0);
+        if (len >= 0.6 * sideMax) { const ra = find(la), rb = find(lb); if (ra !== rb) parent.set(rb, ra); continue; }
+      }
+      if (len < 1.5 * pxPerM || across > 0.3 * pxPerM) continue;
       const side = Math.min(horiz ? A.x1 - A.x0 : A.y1 - A.y0, horiz ? B.x1 - B.x0 : B.y1 - B.y0);
       if (len < 0.7 * side) continue;
       // Приклеиваем только узкую полосу (уже 1,1 м) к соседу — две полноценные комнаты не склеиваются.
@@ -580,7 +732,7 @@ function quickPlanCore(inp: QuickInput): QuickResult {
         if (!prev || len > prev.len) best.set(strip, { to: room, len });
       }
     }
-    for (const [strip, { to }] of best) parent.set(strip, to);
+    for (const [strip, { to }] of best) { const a = find(strip), b = find(to); if (a !== b) parent.set(a, b); }
     if (parent.size) {
       for (let i = 0; i < n; i++) { if (labels[i] > 0) labels[i] = find(labels[i]); if (through[i] > 0) through[i] = find(through[i]); }
       for (const [id] of parent) { const j = roomIds.indexOf(id); if (j >= 0) roomIds.splice(j, 1); roomSet.delete(id); }
