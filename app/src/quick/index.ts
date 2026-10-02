@@ -185,7 +185,14 @@ function quickPlanCore(inp: QuickInput): QuickResult {
   const light = newBin(w, h);
   for (let i = 0, p = 0; i < n; i++, p += 4) if (barrier.d[i] && 0.299 * rgba[p] + 0.587 * rgba[p + 1] + 0.114 * rgba[p + 2] > 140) light.d[i] = 1;
   const fill = openBin(light, Math.max(9, Math.round(Math.min(w, h) / 12)));
-  for (let i = 0; i < n; i++) if (fill.d[i]) barrier.d[i] = 0;
+  // Цвет заливки решаем целиком: если заметная доля пикселей этого цвета лежит в широких
+  // областях, это пол — и в узком коридоре или санузле тоже. Розовые стены техплана узкие везде,
+  // их цвет остаётся стеной.
+  const binOf = (p: number) => ((rgba[p] >> 4) << 8) | ((rgba[p + 1] >> 4) << 4) | (rgba[p + 2] >> 4);
+  const tot = new Map<number, number>(), wide = new Map<number, number>();
+  for (let i = 0, p = 0; i < n; i++, p += 4) if (light.d[i]) { const b = binOf(p); tot.set(b, (tot.get(b) ?? 0) + 1); if (fill.d[i]) wide.set(b, (wide.get(b) ?? 0) + 1); }
+  const floorBin = new Set([...tot].filter(([b, t]) => t > 200 && (wide.get(b) ?? 0) >= 0.4 * t).map(([b]) => b));
+  for (let i = 0, p = 0; i < n; i++, p += 4) if (fill.d[i] || (light.d[i] && floorBin.has(binOf(p)))) barrier.d[i] = 0;
   // Пунктир перегородок и штрихи — в сплошную линию (короткие разрывы вдоль строк и столбцов).
   const gap = Math.max(3, Math.round(Math.min(w, h) / 120));
   const solid = or(barrier, closeDir(barrier, gap, true), closeDir(barrier, gap, false));
@@ -639,6 +646,22 @@ function quickPlanCore(inp: QuickInput): QuickResult {
   }
   const typed = assignTypes(geo, [], 1, entrance && geo.openings.find((o) => o.id === entrance.id) || null, inp.children);
   geo = { ...geo, rooms: typed.rooms };
+  // Помещение за окном другого помещения — балкон или лоджия (меньшее из двух, наружное).
+  {
+    const at = (q: Pt) => geo.rooms.find((r) => pointIn(q, r.polygon));
+    const balc = new Set<string>();
+    for (const o of geo.openings) {
+      if (o.type !== 'window') continue;
+      const dx = o.b.x - o.a.x, dy = o.b.y - o.a.y, l = Math.hypot(dx, dy) || 1, m = { x: (o.a.x + o.b.x) / 2, y: (o.a.y + o.b.y) / 2 };
+      const side = (sg: number) => { for (const d of [300, 600, 900]) { const r = at({ x: m.x + sg * (dy / l) * d, y: m.y - sg * (dx / l) * d }); if (r) return r; } return undefined; };
+      const r1 = side(1), r2 = side(-1);
+      if (!r1 || !r2 || r1.id === r2.id) continue;
+      const [sm, bg] = polyArea(r1.polygon) < polyArea(r2.polygon) ? [r1, r2] : [r2, r1];
+      // Балкон невелик (до 8 м²) и заметно меньше комнаты, из которой на него выходят.
+      if (polyArea(sm.polygon) <= 8e6 && polyArea(sm.polygon) <= 0.5 * polyArea(bg.polygon)) balc.add(sm.id);
+    }
+    if (balc.size) geo = { ...geo, rooms: geo.rooms.map((r) => (balc.has(r.id) ? { ...r, type: 'balcony', name: 'Балкон / лоджия' } : r)) };
+  }
   geo = { ...geo, openings: [...geo.openings, ...inferMissingDoors(geo, inp.page)] };
 
   // 6. Маска стен для подложки: преграды без мелкого «шума» (текст, цифры), только в пределах квартиры.
@@ -701,13 +724,43 @@ export function inferMissingDoors(g: PlanGeometry, page: number | null): Opening
     return best;
   };
   const out: Opening[] = [];
+  const mk = (s: { a: Pt; b: Pt; gap: number }): Opening => ({ id: uid('d'), type: 'door', a: s.a, b: s.b, thickness: Math.max(80, Math.round(s.gap)), hinge: 'a', swing: 1, isEntrance: false, sillHeight: null, source: 'suggested', verifiedByManager: false, sourcePage: page });
+  const isPass = (q: Room) => q.type === 'hall' || q.type === 'corridor';
+  // Каждое помещение достижимо от входа: идём от помещения со входной дверью; недостижимое
+  // соединяем подсказкой-дверью с уже достижимым соседом (прихожая и коридор — в первую очередь).
+  const ent = doors.find((o) => o.isEntrance);
+  const start = ent ? rooms.find((r) => touches(ent, r)) : undefined;
+  if (start) {
+    const reached = new Set([start.id]);
+    const linked = (a: Room, b: Room) => [...doors, ...out].some((o) => !o.isEntrance && touches(o, a) && touches(o, b));
+    for (let changed = true; changed; ) {
+      changed = false;
+      for (const r of rooms) if (!reached.has(r.id) && rooms.some((q) => reached.has(q.id) && linked(r, q))) { reached.add(r.id); changed = true; }
+      if (changed) continue;
+      // Никого нового по дверям — добавляем одну дверь: недостижимое помещение ↔ достижимый сосед.
+      let pick: { r: Room; s: { a: Pt; b: Pt; gap: number; len: number }; pass: boolean } | null = null;
+      for (const r of rooms) {
+        if (reached.has(r.id)) continue;
+        for (const q of rooms) {
+          if (!reached.has(q.id)) continue;
+          const sh = shared(r, q);
+          if (!sh) continue;
+          const better = !pick || (+isPass(q) > +pick.pass) || (isPass(q) === pick.pass && sh.len > pick.s.len);
+          if (better) pick = { r, s: sh, pass: isPass(q) };
+        }
+      }
+      if (!pick) break;
+      out.push(mk(pick.s));
+      changed = true;
+    }
+  }
   for (const r of rooms) {
     if (doors.some((o) => touches(o, r)) || out.some((o) => touches(o, r))) continue;
     const cands = rooms.filter((q) => q.id !== r.id).map((q) => ({ q, s: shared(r, q) })).filter((x) => x.s)
       .sort((x, y) => (+(y.q.type === 'hall' || y.q.type === 'corridor') - +(x.q.type === 'hall' || x.q.type === 'corridor')) || y.s!.len - x.s!.len);
     const c = cands[0];
     if (!c) continue;
-    out.push({ id: uid('d'), type: 'door', a: c.s!.a, b: c.s!.b, thickness: Math.max(80, Math.round(c.s!.gap)), hinge: 'a', swing: 1, isEntrance: false, sillHeight: null, source: 'suggested', verifiedByManager: false, sourcePage: page });
+    out.push(mk(c.s!));
   }
   return out;
 }
