@@ -13,9 +13,8 @@ export interface ReadResult {
   planImage: PlanImage | null;
 }
 
-function runWorker<T>(url: URL, msg: unknown, transfer: Transferable[]): Promise<T> {
+function runWorker<T>(w: Worker, msg: unknown, transfer: Transferable[]): Promise<T> {
   return new Promise((resolve, reject) => {
-    const w = new Worker(url, { type: 'module' });
     w.onmessage = (e) => { w.terminate(); if (e.data.ok) resolve(e.data as T); else reject(new Error(e.data.error)); };
     w.onerror = (e) => { w.terminate(); reject(new Error(e.message)); };
     w.postMessage(msg, transfer);
@@ -43,12 +42,13 @@ export async function recognizeDocument(doc: SourceDocument, page: number, opts:
   const original = imageUrl(src.rgba, src.w, src.h);
   if (vectorDrawing) {
     const input: RecognizeInput = { ...src, briefAreaM2: opts.briefAreaM2, children: opts.children, page, fallbackK: opts.fallbackK };
-    const r = await runWorker<{ geometry: PlanGeometry; report: RecognizeReport }>(new URL('./worker.ts', import.meta.url), input, [src.rgba.buffer]);
+    // Keep Worker + URL together: Vite must see this expression to bundle the TS entry.
+    const r = await runWorker<{ geometry: PlanGeometry; report: RecognizeReport }>(new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' }), input, [src.rgba.buffer]);
     const kv = r.geometry.calibration?.mmPerUnit ?? opts.fallbackK;
     return { geometry: r.geometry, report: r.report, planImage: { url: original, widthMm: (src.w / src.pxPerUnit) * kv, heightMm: (src.h / src.pxPerUnit) * kv } };
   }
   const q: QuickInput = { rgba: src.rgba, w: src.w, h: src.h, pxPerUnit: src.pxPerUnit, areaM2: opts.briefAreaM2, children: opts.children, page };
-  const r = await runWorker<QuickResult>(new URL('../quick/worker.ts', import.meta.url), q, [src.rgba.buffer]);
+  const r = await runWorker<QuickResult>(new Worker(new URL('../quick/worker.ts', import.meta.url), { type: 'module' }), q, [src.rgba.buffer]);
   const k = r.geometry.calibration!.mmPerUnit;
   const report: RecognizeReport = {
     scale: { k, method: r.report.scaleMethod === 'doors' ? 'typical' : r.report.scaleMethod, support: 0 },
