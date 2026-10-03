@@ -63,7 +63,8 @@ function Install-PortableNode {
         if ((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash -ne $entry.Groups[1].Value) {
             throw 'Контрольная сумма Node.js не совпала. Скачанный файл не будет запускаться.'
         }
-        Expand-Archive -LiteralPath $zip -DestinationPath $tempDir
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        [IO.Compression.ZipFile]::ExtractToDirectory($zip, $tempDir)
         $directoryName = $fileName.Substring(0, $fileName.Length - 4)
         $source = Join-Path $tempDir $directoryName
         if (!(Test-NodeTools $source)) { throw 'Скачанная копия Node.js/npm не проходит проверку.' }
