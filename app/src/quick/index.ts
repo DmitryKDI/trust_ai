@@ -4,7 +4,7 @@ import type { Opening, PlanGeometry, Pt, Room } from '../model/types';
 import { emptyGeometry, uid } from '../model/defaults';
 import { closeDir, components, dilate, erode, newBin, or, type Bin } from '../recognize/raster';
 import { assignTypes } from '../recognize/index';
-import { difference, simplifyRing, union, fromRing, toGeom, polyArea } from '../geometry/poly';
+import { difference, intersection, pointInGeom, simplifyRing, union, fromRing, toGeom, polyArea } from '../geometry/poly';
 import { scaleGeometry } from '../editor/ops';
 
 export interface QuickInput {
@@ -392,6 +392,13 @@ function quickPlanCore(inp: QuickInput): QuickResult {
   let exteriorIds = new Set<number>();
   let seedCount = 0;
   const free = newBin(w, h);
+  let chromaticInk = 0, allInk = 0;
+  for (let i = 0, p = 0; i < n; i++, p += 4) if (barrier.d[i]) {
+    allInk++;
+    if (Math.max(rgba[p], rgba[p+1], rgba[p+2]) - Math.min(rgba[p], rgba[p+1], rgba[p+2]) > 30) chromaticInk++;
+  }
+  // Красные/розовые стены могут быть тонкими и бледными: к ним правило размеров не применяем.
+  const grayInk = chromaticInk < 0.25 * allInk;
   for (let iter = 0; iter < 3; iter++) {
     // Текст и мелкие значки (меньше ~0,6 м) — не преграда: иначе режут комнату на куски.
     const small = new Uint8Array(solidComps.comps.length + 1);
@@ -402,6 +409,24 @@ function quickPlanCore(inp: QuickInput): QuickResult {
     const k = Math.max(3, Math.round(0.9 * pxPerM));
     const sf = newBin(w, h);
     for (let i = 0; i < n; i++) sf.d[i] = free.d[i] && !clsEdge[i] ? 1 : 0;
+    // На монохромном плане бледные размерные линии могут быть связаны со стенами
+    // и дробить комнату. Убираем их только из поиска затравок и только при явном
+    // разделении толщин штрихов. Исходная маска остаётся для проёмов и границ.
+    // Цветные планы используют собственное разделение; их здесь не меняем.
+    const Tseed = colored || !grayInk ? null : strokeThreshold(free.d, w, h, pxPerM);
+    if (Tseed) {
+      const wl = newBin(w, h), dark = newBin(w, h);
+      for (let i = 0, p = 0; i < n; i++, p += 4) {
+        wl.d[i] = !free.d[i] && barrier.d[i] ? 1 : 0;
+        if (!free.d[i] && 0.299 * (P[0] - rgba[p]) + 0.587 * (P[1] - rgba[p+1]) + 0.114 * (P[2] - rgba[p+2]) > 90) dark.d[i] = 1;
+      }
+      // Сохраняем широкие светлые перегородки и тёмные тонкие линии (в т. ч.
+      // остекление). 90 — контраст яркости относительно бумаги, не RGB комнаты.
+      // Ограничение 0,1 м не даёт порогу штрихов удалить узкую перегородку.
+      const structural = openBin(wl, Math.min(Tseed, Math.max(3, Math.round(0.1 * pxPerM))));
+      const strong = or(dark, closeDir(dark, gap, true), closeDir(dark, gap, false));
+      for (let i = 0; i < n; i++) if (!structural.d[i] && !strong.d[i] && !clsEdge[i]) sf.d[i] = 1;
+    }
     const seeds = openBin(sf, k);
     // Санузел: пол вдоль ванны и унитаза уже 0,9 м — крупной затравки там нет, и коридор съедает
     // санузел. Сантехника — мелкий замкнутый контур (карман пола внутри линии); считаем карман
@@ -497,9 +522,34 @@ function quickPlanCore(inp: QuickInput): QuickResult {
     const b = boxes.get(l)!;
     return !exteriorIds.has(l) && (area.get(l) ?? 0) >= 6 * pxPerM * pxPerM && Math.min(b.x1 - b.x0, b.y1 - b.y0) >= 2 * pxPerM;
   });
+  // Отсекаем отдельные блоки листа (печать, таблицу) по соседству областей.
+  // Основная группа содержит больше соседних помещений; при равенстве берём площадь.
+  // Это только фильтр: он не расширяет прежнюю рамку крупных комнат в поле листа.
+  const candidateIds = [...boxes.keys()].filter(l => !exteriorIds.has(l) && (area.get(l) ?? 0) >= minRoomPx);
+  let apartmentIds: Set<number> | null = null;
+  if (!colored && candidateIds.length) {
+    const unseen = new Set(candidateIds), groups: { ids: Set<number>; area: number }[] = [];
+    const gap = 1.5 * pxPerM;
+    while (unseen.size) {
+      const start = unseen.values().next().value!;
+      const ids = new Set([start]), queue = [start]; unseen.delete(start);
+      for (let j = 0; j < queue.length; j++) {
+        const a = boxes.get(queue[j])!;
+        for (const id of unseen) {
+          const b = boxes.get(id)!;
+          const dx = Math.max(0, a.x0 - b.x1, b.x0 - a.x1), dy = Math.max(0, a.y0 - b.y1, b.y0 - a.y1);
+          if (Math.hypot(dx, dy) <= gap) { unseen.delete(id); ids.add(id); queue.push(id); }
+        }
+      }
+      groups.push({ ids, area: [...ids].reduce((sum, id) => sum + (area.get(id) ?? 0), 0) });
+    }
+    if (groups.length > 1) apartmentIds = groups.reduce((best, group) =>
+      group.ids.size > best.ids.size || (group.ids.size === best.ids.size && group.area > best.area) ? group : best).ids;
+  }
   const m = 0.5 * pxPerM;
   const core = bigIds.length ? bigIds.map((l) => boxes.get(l)!).reduce((a, b) => ({ x0: Math.min(a.x0, b.x0), y0: Math.min(a.y0, b.y0), x1: Math.max(a.x1, b.x1), y1: Math.max(a.y1, b.y1) })) : null;
   const inCore = (l: number) => {
+    if (apartmentIds && !apartmentIds.has(l)) return false;
     if (!core) return true;
     const b = boxes.get(l)!;
     return b.x1 >= core.x0 - m && b.x0 <= core.x1 + m && b.y1 >= core.y0 - m && b.y0 <= core.y1 + m;
@@ -996,6 +1046,35 @@ function quickPlanCore(inp: QuickInput): QuickResult {
     r.polygon = pp.poly.map((q) => ({ x: Math.round(U(q.x) * k), y: Math.round(U(q.y) * k) }));
   }
 
+  // Сглаживание каждого контура независимо может создать перекрытие соседних зон.
+  // В спорной части сохраняем владельца по пиксельной разметке до сглаживания.
+  // Вырез принимаем только как одно кольцо с положительной площадью: комнату нельзя
+  // потерять, разрезать на острова или молча удалить внутреннее отверстие.
+  let unresolvedOverlaps = 0;
+  for (let a = 0; a < pxPolys.length; a++) for (let b = a + 1; b < pxPolys.length; b++) {
+    const A = pxPolys[a], B = pxPolys[b];
+    const shared = intersection(toGeom(A.poly), toGeom(B.poly));
+    if (!shared.length) continue;
+    const points = shared.flatMap(part => fromRing(part[0]));
+    let ownedA = 0, ownedB = 0;
+    for (let y = Math.max(0, Math.floor(Math.min(...points.map(p => p.y)))); y < Math.min(h, Math.ceil(Math.max(...points.map(p => p.y)))); y++)
+      for (let x = Math.max(0, Math.floor(Math.min(...points.map(p => p.x)))); x < Math.min(w, Math.ceil(Math.max(...points.map(p => p.x)))); x++) {
+        if (!pointInGeom({ x: x + 0.5, y: y + 0.5 }, shared)) continue;
+        if (roomPx[y * w + x] === A.id) ownedA++;
+        if (roomPx[y * w + x] === B.id) ownedB++;
+      }
+    // При равенстве защищаем меньшую зону от расширившегося большого контура.
+    const keepA = ownedA > ownedB || (ownedA === ownedB && polyArea(A.poly) <= polyArea(B.poly));
+    const owner = keepA ? A : B, other = keepA ? B : A;
+    const cut = difference(toGeom(other.poly), toGeom(owner.poly));
+    if (cut.length !== 1 || cut[0].length !== 1) { unresolvedOverlaps++; continue; }
+    const contour = fromRing(cut[0][0]);
+    if (contour.length < 3 || polyArea(contour) < minRoomPx) { unresolvedOverlaps++; continue; }
+    other.poly = contour;
+    rooms.find(r => r.id === `r${other.id}`)!.polygon = contour.map(q => ({ x: Math.round(U(q.x) * k), y: Math.round(U(q.y) * k) }));
+  }
+  if (unresolvedOverlaps) notes.push(`Есть ${unresolvedOverlaps} спорных пересечений контуров — проверьте границы помещений.`);
+
   // Окна: на наружной стороне комнаты в полосе стены — несколько параллельных тонких линий
   // (остекление), в отличие от сплошной или двухконтурной стены.
   const bandPx = Math.max(4, Math.round(0.6 * pxPerM));
@@ -1138,7 +1217,9 @@ function quickPlanCore(inp: QuickInput): QuickResult {
       const xs = r.polygon.map((q) => q.x), ys = r.polygon.map((q) => q.y);
       const bw = Math.max(...xs) - Math.min(...xs), bh = Math.max(...ys) - Math.min(...ys);
       return { a: polyArea(r.polygon), s: Math.min(bw, bh), l: Math.max(bw, bh) };
-    }).filter((x) => x.l / x.s < 2.2).sort((a, b) => b.a - a.a).slice(0, 2);
+    // Типовую ширину оцениваем по почти прямоугольным комнатам: ширина рамки
+    // Г-образного коридора зависит от его поворотов и не является шириной помещения.
+    }).filter((x) => x.l / x.s < 2.2 && (colored || x.a >= 0.85 * x.s * x.l)).sort((a, b) => b.a - a.a).slice(0, 2);
     if (shorts.length) {
       const f = 3400 / (shorts.reduce((t, x) => t + x.s, 0) / shorts.length);
       if (f > 0.4 && f < 2.5) {
