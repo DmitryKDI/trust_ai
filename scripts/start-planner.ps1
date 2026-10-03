@@ -14,16 +14,47 @@ $appDir = Join-Path $repoRoot 'app'
 $toolsDir = Join-Path $env:LOCALAPPDATA 'TrustRemontPlanner\runtime'
 $transcriptStarted = $false
 
+function Invoke-NodeTool([string]$Executable, [string[]]$ToolArguments, [switch]$Capture) {
+    # Invoke executable paths literally: Windows PowerShell 5.1 treats brackets
+    # in paths passed to the call operator as wildcard patterns.
+    $info = New-Object Diagnostics.ProcessStartInfo
+    $info.FileName = $Executable
+    $info.UseShellExecute = $false
+    $info.Arguments = ($ToolArguments | ForEach-Object {
+        if ($_ -match '"') { throw 'Unexpected quote in tool argument.' }
+        '"' + $_ + '"'
+    }) -join ' '
+    $info.RedirectStandardOutput = [bool]$Capture
+    $info.RedirectStandardError = [bool]$Capture
+    $process = New-Object Diagnostics.Process
+    $process.StartInfo = $info
+    try {
+        $null = $process.Start()
+        if ($Capture) {
+            $stdout = $process.StandardOutput.ReadToEndAsync()
+            $stderr = $process.StandardError.ReadToEndAsync()
+        }
+        $process.WaitForExit()
+        if ($Capture) {
+            return [pscustomobject]@{ ExitCode = $process.ExitCode; Output = $stdout.Result; Error = $stderr.Result }
+        }
+        return $process.ExitCode
+    } finally { $process.Dispose() }
+}
+
 function Test-NodeTools([string]$Directory) {
     $node = Join-Path $Directory 'node.exe'
     $npm = Join-Path $Directory 'npm.cmd'
     if (!(Test-Path -LiteralPath $node) -or !(Test-Path -LiteralPath $npm)) { return $false }
     try {
-        $version = & $node --version
-        if ($LASTEXITCODE -ne 0 -or $version -notmatch '^v(\d+)\.') { return $false }
+        $nodeCheck = Invoke-NodeTool $node @('--version') -Capture
+        $version = $nodeCheck.Output.Trim()
+        if ($nodeCheck.ExitCode -ne 0 -or $version -notmatch '^v(\d+)\.') { return $false }
         if ([int]$Matches[1] -ne 24) { Write-Host "Не подходит Node.js: $version"; return $false }
-        $null = & $npm --version
-        return $LASTEXITCODE -eq 0
+        $npmCli = Join-Path $Directory 'node_modules\npm\bin\npm-cli.js'
+        if (!(Test-Path -LiteralPath $npmCli)) { return $false }
+        $npmCheck = Invoke-NodeTool $node @($npmCli, '--version') -Capture
+        return $npmCheck.ExitCode -eq 0
     } catch { Write-Host ("Проверка Node.js/npm: " + $_.Exception.Message); return $false }
 }
 
@@ -109,8 +140,9 @@ try {
     $env:PATH = "$nodeDir;$env:PATH"
     $node = Join-Path $nodeDir 'node.exe'
     $npm = Join-Path $nodeDir 'npm.cmd'
-    $nodeVersion = & $node --version
-    $npmVersion = & $npm --version
+    $npmCli = Join-Path $nodeDir 'node_modules\npm\bin\npm-cli.js'
+    $nodeVersion = (Invoke-NodeTool $node @('--version') -Capture).Output.Trim()
+    $npmVersion = (Invoke-NodeTool $node @($npmCli, '--version') -Capture).Output.Trim()
     Write-Host "Node.js $nodeVersion, npm $npmVersion"
 
     # This marker disappears if the dependencies are removed.
@@ -123,14 +155,14 @@ try {
     if ($installed) { $installed = (Get-Content -LiteralPath $marker -Raw).Trim() -eq $fingerprint }
     if ($installed) {
         # Verify the actual dependency tree, including dev tools, as well as the marker.
-        & $npm ls --all --include=dev --include=optional --silent *> $null
-        $installed = $LASTEXITCODE -eq 0
+        $dependencyCheck = Invoke-NodeTool $node @($npmCli, 'ls', '--all', '--include=dev', '--include=optional', '--silent') -Capture
+        $installed = $dependencyCheck.ExitCode -eq 0
     }
     if (!$installed) {
         Write-Host 'Устанавливаю зависимости программы. При первом запуске нужен интернет...'
         if (Test-Path -LiteralPath $marker) { Remove-Item -LiteralPath $marker -Force }
-        & $npm ci --include=dev --include=optional --no-audit --no-fund
-        if ($LASTEXITCODE -ne 0) { throw 'npm ci завершился с ошибкой. Проверьте интернет и сообщения выше, затем запустите батник снова.' }
+        $installExit = Invoke-NodeTool $node @($npmCli, 'ci', '--include=dev', '--include=optional', '--no-audit', '--no-fund')
+        if ($installExit -ne 0) { throw 'npm ci завершился с ошибкой. Проверьте интернет и сообщения выше, затем запустите батник снова.' }
         Set-Content -LiteralPath $marker -Value $fingerprint -Encoding ASCII
     } else { Write-Host 'Зависимости уже установлены и соответствуют текущей версии программы.' }
 
@@ -143,8 +175,8 @@ try {
         Write-Host 'Браузер откроется после запуска сервера. Не закрывайте это окно; остановка — Ctrl+C.'
         $arguments = @('run', 'dev', '--', '--host', '127.0.0.1', '--port', '5190', '--strictPort')
         if (!$NoBrowser) { $arguments += '--open' }
-        & $npm @arguments
-        if ($LASTEXITCODE -ne 0) { throw 'Сервер завершился с ошибкой. Подробности показаны выше.' }
+        $serverExit = Invoke-NodeTool $node (@($npmCli) + $arguments)
+        if ($serverExit -ne 0) { throw 'Сервер завершился с ошибкой. Подробности показаны выше.' }
     }
 } catch {
     Write-Host ''
