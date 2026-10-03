@@ -1,0 +1,139 @@
+#Requires -Version 5.1
+[CmdletBinding()]
+param(
+    [switch]$PrepareOnly,
+    [switch]$UsePortableNode
+)
+
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$appDir = Join-Path $repoRoot 'app'
+$toolsDir = Join-Path $env:LOCALAPPDATA 'TrustRemontPlanner\tools'
+$transcriptStarted = $false
+
+function Test-NodeTools([string]$Directory) {
+    $node = Join-Path $Directory 'node.exe'
+    $npm = Join-Path $Directory 'npm.cmd'
+    if (!(Test-Path -LiteralPath $node) -or !(Test-Path -LiteralPath $npm)) { return $false }
+    try {
+        $version = & $node --version
+        if ($LASTEXITCODE -ne 0 -or $version -notmatch '^v(\d+)\.') { return $false }
+        if ([int]$Matches[1] -lt 24) { return $false }
+        $null = & $npm --version
+        return $LASTEXITCODE -eq 0
+    } catch { return $false }
+}
+
+function Install-PortableNode {
+    $nativeArch = $env:PROCESSOR_ARCHITEW6432
+    if (!$nativeArch) { $nativeArch = $env:PROCESSOR_ARCHITECTURE }
+    switch ($nativeArch) {
+        'AMD64' { $arch = 'x64' }
+        'ARM64' { $arch = 'arm64' }
+        default { throw 'Нужна 64-разрядная Windows 10/11 (x64 или ARM64).' }
+    }
+
+    Write-Host 'Скачиваю Node.js 24 с npm с nodejs.org. Права администратора не нужны.'
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    $checksums = (Invoke-WebRequest -UseBasicParsing -Uri 'https://nodejs.org/dist/latest-v24.x/SHASUMS256.txt' -TimeoutSec 60).Content
+    $pattern = '(?m)^([a-fA-F0-9]{64})\s+(node-v24\.\d+\.\d+-win-' + $arch + '\.zip)\s*$'
+    $entry = [regex]::Match($checksums, $pattern)
+    if (!$entry.Success) { throw 'Не найден официальный ZIP Node.js 24 для этого компьютера.' }
+    $fileName = $entry.Groups[2].Value
+    $version = [regex]::Match($fileName, 'v24\.\d+\.\d+').Value
+    $tempDir = Join-Path $toolsDir ([guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+    try {
+        $zip = Join-Path $tempDir $fileName
+        # A version-specific URL prevents the latest alias changing the ZIP mid-download.
+        Invoke-WebRequest -UseBasicParsing -Uri "https://nodejs.org/dist/$version/$fileName" -OutFile $zip -TimeoutSec 300
+        if ((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash -ne $entry.Groups[1].Value) {
+            throw 'Контрольная сумма Node.js не совпала. Скачанный файл не будет запускаться.'
+        }
+        Expand-Archive -LiteralPath $zip -DestinationPath $tempDir
+        $directoryName = $fileName.Substring(0, $fileName.Length - 4)
+        $source = Join-Path $tempDir $directoryName
+        if (!(Test-NodeTools $source)) { throw 'Скачанная копия Node.js/npm не проходит проверку.' }
+        $target = Join-Path $toolsDir $directoryName
+        if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+        Move-Item -LiteralPath $source -Destination $target
+        return $target
+    } finally {
+        Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+try {
+    foreach ($file in @('package.json', 'package-lock.json')) {
+        if (!(Test-Path -LiteralPath (Join-Path $appDir $file))) {
+            throw "Не найден app/$file. Сначала полностью распакуйте ZIP репозитория."
+        }
+    }
+    Set-Location -LiteralPath $appDir
+    try {
+        Start-Transcript -Path (Join-Path $appDir 'planner-start.log') -Force | Out-Null
+        $transcriptStarted = $true
+    } catch { Write-Host 'Не удалось записать журнал; сообщения будут показаны в этом окне.' }
+
+    Write-Host 'Проверяю Node.js и npm...'
+    $nodeDir = $null
+    if (!$UsePortableNode) {
+        $nodeCommand = Get-Command node.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($nodeCommand) {
+            $candidate = Split-Path -Parent $nodeCommand.Source
+            if (Test-NodeTools $candidate) { $nodeDir = $candidate }
+        }
+    }
+    if (!$nodeDir -and (Test-Path -LiteralPath $toolsDir)) {
+        foreach ($candidate in (Get-ChildItem -LiteralPath $toolsDir -Directory -Filter 'node-v24.*-win-*' | Sort-Object LastWriteTime -Descending)) {
+            if (Test-NodeTools $candidate.FullName) { $nodeDir = $candidate.FullName; break }
+        }
+    }
+    if (!$nodeDir) { $nodeDir = Install-PortableNode }
+    # Only this process and its children use this Node; system PATH stays unchanged.
+    $env:PATH = "$nodeDir;$env:PATH"
+    $node = Join-Path $nodeDir 'node.exe'
+    $npm = Join-Path $nodeDir 'npm.cmd'
+    $nodeVersion = & $node --version
+    $npmVersion = & $npm --version
+    Write-Host "Node.js $nodeVersion, npm $npmVersion"
+
+    # This marker disappears if the dependencies are removed.
+    $marker = Join-Path $appDir 'node_modules\.planner-dependencies'
+    $lockHash = (Get-FileHash -LiteralPath (Join-Path $appDir 'package-lock.json') -Algorithm SHA256).Hash
+    $packageHash = (Get-FileHash -LiteralPath (Join-Path $appDir 'package.json') -Algorithm SHA256).Hash
+    $fingerprint = "$lockHash|$packageHash|$nodeVersion|$npmVersion"
+    $installed = (Test-Path -LiteralPath $marker) -and
+        (Test-Path -LiteralPath (Join-Path $appDir 'node_modules\.bin\vite.cmd'))
+    if ($installed) { $installed = (Get-Content -LiteralPath $marker -Raw).Trim() -eq $fingerprint }
+    if ($installed) {
+        # Verify the actual dependency tree, including dev tools, as well as the marker.
+        & $npm ls --depth=0 --include=dev *> $null
+        $installed = $LASTEXITCODE -eq 0
+    }
+    if (!$installed) {
+        Write-Host 'Устанавливаю зависимости программы. При первом запуске нужен интернет...'
+        & $npm ci --include=dev --no-audit --no-fund
+        if ($LASTEXITCODE -ne 0) { throw 'npm ci завершился с ошибкой. Проверьте интернет и сообщения выше, затем запустите батник снова.' }
+        Set-Content -LiteralPath $marker -Value $fingerprint -Encoding ASCII
+    } else { Write-Host 'Зависимости уже установлены и соответствуют текущей версии программы.' }
+
+    if (!$PrepareOnly) {
+        $listener = New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback, 5190)
+        try { $listener.Start() }
+        catch { throw 'Порт 5190 занят. Закройте ранее запущенное окно планировщика (Ctrl+C) и повторите запуск.' }
+        finally { $listener.Stop() }
+        Write-Host 'Запускаю планировщик: http://127.0.0.1:5190'
+        Write-Host 'Браузер откроется после запуска сервера. Не закрывайте это окно; остановка — Ctrl+C.'
+        & $npm run dev -- --host 127.0.0.1 --port 5190 --strictPort --open
+        if ($LASTEXITCODE -ne 0) { throw 'Сервер завершился с ошибкой. Подробности показаны выше.' }
+    }
+} catch {
+    Write-Host ''
+    Write-Host ('ОШИБКА: ' + $_.Exception.Message) -ForegroundColor Red
+    Write-Host 'Если журнал создан, он находится в app\planner-start.log.'
+    exit 1
+} finally {
+    if ($transcriptStarted) { Stop-Transcript | Out-Null }
+}
