@@ -1,15 +1,17 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 [CmdletBinding()]
 param(
+    [Alias("SetupOnly")]
     [switch]$PrepareOnly,
-    [switch]$UsePortableNode
+    [switch]$UsePortableNode,
+    [switch]$NoBrowser
 )
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $appDir = Join-Path $repoRoot 'app'
-$toolsDir = Join-Path $env:LOCALAPPDATA 'TrustRemontPlanner\tools'
+$toolsDir = Join-Path $env:LOCALAPPDATA 'TrustRemontPlanner\runtime'
 $transcriptStarted = $false
 
 function Test-NodeTools([string]$Directory) {
@@ -19,7 +21,7 @@ function Test-NodeTools([string]$Directory) {
     try {
         $version = & $node --version
         if ($LASTEXITCODE -ne 0 -or $version -notmatch '^v(\d+)\.') { return $false }
-        if ([int]$Matches[1] -lt 24) { return $false }
+        if ([int]$Matches[1] -ne 24) { return $false }
         $null = & $npm --version
         return $LASTEXITCODE -eq 0
     } catch { return $false }
@@ -64,6 +66,7 @@ function Install-PortableNode {
     }
 }
 
+function Start-Planner {
 try {
     foreach ($file in @('package.json', 'package-lock.json')) {
         if (!(Test-Path -LiteralPath (Join-Path $appDir $file))) {
@@ -109,12 +112,13 @@ try {
     if ($installed) { $installed = (Get-Content -LiteralPath $marker -Raw).Trim() -eq $fingerprint }
     if ($installed) {
         # Verify the actual dependency tree, including dev tools, as well as the marker.
-        & $npm ls --depth=0 --include=dev *> $null
+        & $npm ls --all --include=dev --include=optional --silent *> $null
         $installed = $LASTEXITCODE -eq 0
     }
     if (!$installed) {
         Write-Host 'Устанавливаю зависимости программы. При первом запуске нужен интернет...'
-        & $npm ci --include=dev --no-audit --no-fund
+        if (Test-Path -LiteralPath $marker) { Remove-Item -LiteralPath $marker -Force }
+        & $npm ci --include=dev --include=optional --no-audit --no-fund
         if ($LASTEXITCODE -ne 0) { throw 'npm ci завершился с ошибкой. Проверьте интернет и сообщения выше, затем запустите батник снова.' }
         Set-Content -LiteralPath $marker -Value $fingerprint -Encoding ASCII
     } else { Write-Host 'Зависимости уже установлены и соответствуют текущей версии программы.' }
@@ -126,7 +130,9 @@ try {
         finally { $listener.Stop() }
         Write-Host 'Запускаю планировщик: http://127.0.0.1:5190'
         Write-Host 'Браузер откроется после запуска сервера. Не закрывайте это окно; остановка — Ctrl+C.'
-        & $npm run dev -- --host 127.0.0.1 --port 5190 --strictPort --open
+        $arguments = @('run', 'dev', '--', '--host', '127.0.0.1', '--port', '5190', '--strictPort')
+        if (!$NoBrowser) { $arguments += '--open' }
+        & $npm @arguments
         if ($LASTEXITCODE -ne 0) { throw 'Сервер завершился с ошибкой. Подробности показаны выше.' }
     }
 } catch {
@@ -137,3 +143,6 @@ try {
 } finally {
     if ($transcriptStarted) { Stop-Transcript | Out-Null }
 }
+}
+
+if ($MyInvocation.InvocationName -ne '.') { Start-Planner }

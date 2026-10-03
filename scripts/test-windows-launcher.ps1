@@ -11,13 +11,14 @@ $server = $null
 $originalPath = $env:PATH
 try {
     # Always exercise installation even if the runner already has Node.js.
-    $runtime = Install-NodeRuntime (Join-Path $testRoot 'runtime')
-    Assert (Test-NodeRuntime $runtime) 'Downloaded Node.js/npm must run.'
+    $toolsDir = Join-Path $testRoot 'runtime'
+    $runtime = Install-PortableNode
+    Assert (Test-NodeTools $runtime) 'Downloaded Node.js/npm must run.'
     $empty = Join-Path $testRoot 'empty'
     New-Item -ItemType Directory -Path $empty -Force | Out-Null
-    Assert (!(Test-NodeRuntime $empty)) 'Missing runtime must be rejected.'
+    Assert (!(Test-NodeTools $empty)) 'Missing runtime must be rejected.'
     Copy-Item -LiteralPath (Join-Path $runtime 'node.exe') -Destination $empty
-    Assert (!(Test-NodeRuntime $empty)) 'Missing npm must be rejected.'
+    Assert (!(Test-NodeTools $empty)) 'Missing npm must be rejected.'
 
     $env:PATH = $runtime + ';' + $originalPath
     $launcher = Join-Path $PSScriptRoot 'start-planner.ps1'
