@@ -67,6 +67,9 @@ export interface Room extends Provenance {
   name: string;
   type: RoomType;
   polygon: Pt[];
+  /** Источник назначения отделен от источника контура. Старые проекты: undefined = предположение. */
+  typeSource?: 'manual' | 'learned';
+  typeBasis?: string;
 }
 
 /** Калибровка: две точки в единицах листа (pt для PDF, px для растра) и известный размер. */

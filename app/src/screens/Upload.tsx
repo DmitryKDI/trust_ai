@@ -5,7 +5,7 @@ import { runVariantsInWorker } from '../layout/runVariants';
 import { isReady } from '../layout/variants';
 import { provisionalScale } from '../editor/ops';
 import type { SourceDocument } from '../model/types';
-import { uid } from '../model/defaults';
+import { emptyGeometry, uid } from '../model/defaults';
 import { useStore } from '../state/store';
 import { getFile, putFile } from '../storage/db';
 import { pdfPageCount, pdfThumbnails } from '../pdf/load';
@@ -48,7 +48,10 @@ function DocPicker({ role }: { role: 'plan' | 'reference' }) {
       const pageCount = isPdf ? await pdfPageCount(await f.arrayBuffer()) : 1;
       const d: SourceDocument = { id, name: f.name, mime: isPdf ? 'application/pdf' : f.type, size: f.size, pageCount, role, addedAt: new Date().toISOString() };
       update((p) => ({ ...p, documents: [...p.documents.filter((x) => x.role !== role), d], ...(role === 'reference' ? { referencePage: 1 } : {}) }));
-      if (role === 'plan') editGeometry((g) => ({ ...g, sourceDocumentId: id, sourcePage: pageCount === 1 ? 1 : null }));
+      if (role === 'plan') {
+        editGeometry((g) => ({ ...emptyGeometry(), version: g.version, sourceDocumentId: id, sourcePage: pageCount === 1 ? 1 : null }));
+        update(p => ({ ...p, planImage: undefined, recognition: undefined, selectedVariantId: null, review: null }));
+      }
     } catch (e) {
       setErr(`Не удалось прочитать файл: ${String((e as Error).message ?? e)}`);
     } finally {
@@ -71,8 +74,11 @@ function DocPicker({ role }: { role: 'plan' | 'reference' }) {
   });
 
   const choose = (n: number) => {
-    if (role === 'plan') editGeometry((g) => ({ ...g, sourcePage: n }));
-    else update((p) => ({ ...p, referencePage: n }));
+    if (role === 'plan' && n !== page) {
+      editGeometry(g => ({ ...emptyGeometry(), version: g.version, sourceDocumentId: doc?.id ?? null, sourcePage: n }));
+      update(p => ({ ...p, planImage: undefined, recognition: undefined, selectedVariantId: null, review: null }));
+    }
+    else if (role === 'reference') update((p) => ({ ...p, referencePage: n }));
   };
 
   return (
@@ -108,6 +114,7 @@ export function UploadScreen({ next, toVariants, toMarkup }: { next: () => void;
   const [stage, setStage] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [needArea, setNeedArea] = useState(false);
+  const [useLearning, setUseLearning] = useState(true);
 
   // Один шаг: прочитать план → построить варианты → показать.
   const build = async () => {
@@ -116,7 +123,7 @@ export function UploadScreen({ next, toVariants, toMarkup }: { next: () => void;
     try {
       setStage('Читаю план: стены, окна, двери, комнаты…');
       const area = Number(String(project.brief.area).replace(',', '.')) || null;
-      const { geometry, report, planImage } = await recognizeDocument(doc, g.sourcePage, { briefAreaM2: area, children: project.brief.children, fallbackK: provisionalScale(doc.mime) });
+      const { geometry, report, planImage } = await recognizeDocument(doc, g.sourcePage, { briefAreaM2: area, children: project.brief.children, fallbackK: provisionalScale(doc.mime), useLearning });
       if (report.scale.method === 'assumed' && !planImage) {
         setStage(null);
         setNeedArea(true);
@@ -153,6 +160,8 @@ export function UploadScreen({ next, toVariants, toMarkup }: { next: () => void;
               onChange={(e) => update((p) => ({ ...p, brief: { ...p.brief, area: e.target.value } }))} />
             <span className="hint">Если указать — размеры мебели будут точнее. Без неё масштаб прикидывается по дверям, его можно подправить ползунком.</span>
           </label>
+          <label className="check-inline" style={{ marginTop: 12 }}><input type="checkbox" checked={useLearning} disabled={!!stage} onChange={e => setUseLearning(e.target.checked)} />Использовать мои проверенные планы и примеры назначений</label>
+          <p className="muted small">Для того же файла восстанавливаются сохранённые границы и масштаб. Отключите, чтобы распознать исходник заново.</p>
           <div className="actions">
             <button className="btn" disabled={!ok || !!stage} onClick={build}>{stage ? <><span className="spinner" />{stage}</> : 'Построить варианты'}</button>
             <button className="btn secondary" disabled={!ok || !!stage} onClick={toMarkup}>Поправить план вручную</button>

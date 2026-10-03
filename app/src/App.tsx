@@ -63,7 +63,6 @@ function Workspace({ onClose }: { onClose: () => void }) {
           Предварительная концепция для первой встречи. Не является проектной документацией.
           <div className="actions" style={{ marginTop: 10 }}>
             <button className="btn ghost sm" onClick={() => setRulesOpen(true)}>Правила</button>
-            <button className="btn ghost sm" onClick={onClose}>Все проекты</button>
           </div>
         </div>
       </aside>
@@ -74,6 +73,7 @@ function Workspace({ onClose }: { onClose: () => void }) {
             <span className={`badge ${g.approved ? 'ok' : 'warn'}`}>{g.approved ? 'Геометрия утверждена' : 'Геометрия не утверждена'}</span>
             <span className="badge">{saving ? 'Сохранение…' : 'Сохранено в браузере'}</span>
             <button className="btn ghost sm no-print" onClick={() => setRulesOpen(true)}>Правила</button>
+            <button className="btn ghost sm no-print" onClick={onClose}>Все проекты</button>
           </div>
         </div>
         {step === 0 && <ProjectScreen next={() => go(1)} />}

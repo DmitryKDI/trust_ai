@@ -8,6 +8,7 @@ import { PlanView, planBounds, polyPath } from '../plan/PlanView';
 import { geometryHash } from '../geometry/plan';
 import { pointInPolygon, type BBox } from '../geometry/poly';
 import { doorAt, mergeRooms, newRoomFromImage, roomFromCorners, splitRoom, type ImageData8 } from '../editor/quickfix';
+import { ROOM_TYPES, roomName } from '../learning/model';
 
 type Tool = 'select' | 'add' | 'rect' | 'split' | 'merge' | 'door';
 
@@ -20,17 +21,14 @@ const TOOLS: { id: Tool; label: string; hint: string }[] = [
   { id: 'door', label: 'Дверь', hint: 'Щёлкните по стене, где должна быть дверь. Снаружи квартиры — входная.' },
 ];
 
-const TYPES: [RoomType, string][] = [
-  ['living', 'Гостиная'], ['bedroom', 'Спальня'], ['kids', 'Детская'], ['kitchen', 'Кухня'], ['kitchen-living', 'Кухня-гостиная'],
-  ['hall', 'Прихожая'], ['corridor', 'Коридор'], ['bath', 'Ванная'], ['wc', 'Санузел'], ['storage', 'Кладовая'], ['balcony', 'Балкон / лоджия'],
-];
-const nameOf = (t: RoomType) => TYPES.find((x) => x[0] === t)?.[1] ?? 'Помещение';
+const nameOf = roomName;
 
 export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boolean }) {
   const { project, editGeometry, update, undo, redo, canUndo, canRedo } = useStore();
   const g = project.geometry;
   const img = project.planImage ?? null;
   const [tool, setTool] = useState<Tool>('select');
+  const [newRoomType, setNewRoomType] = useState<RoomType>('other');
   const [sel, setSel] = useState<{ kind: 'room' | 'opening'; id: string } | null>(null);
   const [draft, setDraft] = useState<Pt[]>([]);
   const [first, setFirst] = useState<string | null>(null);
@@ -117,7 +115,7 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
       const { data, mmPerPx } = pixels.current;
       const poly = newRoomFromImage(data, { x: p.x / mmPerPx, y: p.y / mmPerPx }, mmPerPx, g.rooms);
       if (!poly) { setMsg('Контур не найден по картинке. Воспользуйтесь «Комната по углам» — два щелчка в противоположные углы.'); return; }
-      const room: Room = { id: uid('r'), name: 'Помещение', type: 'other', polygon: poly, source: 'manual', verifiedByManager: true, sourcePage: g.sourcePage };
+      const room: Room = { id: uid('r'), name: nameOf(newRoomType), type: newRoomType, typeSource: 'manual', polygon: poly, source: 'manual', verifiedByManager: true, sourcePage: g.sourcePage };
       fix((x) => ({ ...x, rooms: [...x.rooms, room] }), 'Помещение добавлено — выберите его назначение ниже.');
       setSel({ kind: 'room', id: room.id });
       setTool('select');
@@ -128,7 +126,7 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
       const poly = roomFromCorners(draft[0], p, g.rooms);
       setDraft([]);
       if (!poly) { setMsg('Прямоугольник слишком мал или целиком занят другими помещениями.'); return; }
-      const room: Room = { id: uid('r'), name: 'Помещение', type: 'other', polygon: poly, source: 'manual', verifiedByManager: true, sourcePage: g.sourcePage };
+      const room: Room = { id: uid('r'), name: nameOf(newRoomType), type: newRoomType, typeSource: 'manual', polygon: poly, source: 'manual', verifiedByManager: true, sourcePage: g.sourcePage };
       fix((x) => ({ ...x, rooms: [...x.rooms, room] }), 'Помещение добавлено — выберите его назначение ниже.');
       setSel({ kind: 'room', id: room.id });
       setTool('select');
@@ -197,6 +195,7 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
         <button className="tool" onClick={redo} disabled={!canRedo}>Повторить</button>
         <button className="tool" onClick={() => setView(null)}>Вписать</button>
       </div>
+      {(tool === 'add' || tool === 'rect') && <label className="field" style={{ maxWidth: 360 }}>Назначение новой зоны<select value={newRoomType} onChange={e => setNewRoomType(e.target.value as RoomType)}>{ROOM_TYPES.map(([t, label]) => <option key={t} value={t}>{label}</option>)}</select></label>}
       <div className="canvas-wrap qf-canvas">
         <PlanView ref={svgRef} g={g} mode="editor" viewBox={vb} selectedId={sel?.id} labelScale={1.8}
           underlay={img ? { url: img.url, widthMm: img.widthMm, heightMm: img.heightMm, opacity: 0.45 } : null}
@@ -215,8 +214,8 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
         <div className="qf-actions">
           <div className="small"><b>{room.name}</b> — назначение:</div>
           <div className="qf-chips">
-            {TYPES.map(([t, l]) => (
-              <button key={t} className={`tool ${room.type === t ? 'on' : ''}`} onClick={() => setRoom({ type: t, name: nameOf(t) })}>{l}</button>
+            {ROOM_TYPES.map(([t, l]) => (
+              <button key={t} className={`tool ${room.type === t ? 'on' : ''}`} onClick={() => setRoom({ type: t, name: nameOf(t), typeSource: 'manual', typeBasis: undefined })}>{l}</button>
             ))}
           </div>
           <div className="actions" style={{ marginTop: 6 }}>

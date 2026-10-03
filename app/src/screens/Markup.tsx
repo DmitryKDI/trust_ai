@@ -11,6 +11,8 @@ import { SnapIndex } from '../pdf/vectors';
 import { detectRoomPolygon, geometryHash, openingWidth, roomArea } from '../geometry/plan';
 import { add, dist, mul, norm, sub, type BBox } from '../geometry/poly';
 import { validate } from '../validate/validator';
+import { LearningPanel } from '../learning/Panel';
+import { ROOM_TYPES, roomName, simpleRing } from '../learning/model';
 
 type Tool = 'select' | 'pan' | 'calibrate' | 'wall' | 'pickWall' | 'door' | 'window' | 'pickDoor' | 'riser' | 'fixed' | 'wet' | 'room' | 'roomPoly';
 type Sel = { kind: 'wall' | 'opening' | 'fixed' | 'room' | 'wet'; id: string } | null;
@@ -31,10 +33,6 @@ const TOOLS: { id: Tool; label: string; key: string; hint: string }[] = [
   { id: 'roomPoly', label: 'Помещение по точкам', key: 'N', hint: 'Для открытых зон: щёлкайте углы помещения; щелчок по первой точке или Enter — замкнуть.' },
 ];
 
-const ROOM_TYPES: [RoomType, string][] = [
-  ['living', 'Гостиная'], ['kitchen', 'Кухня'], ['kitchen-living', 'Кухня-гостиная'], ['bedroom', 'Спальня'], ['kids', 'Детская'],
-  ['bath', 'Ванная'], ['wc', 'Санузел'], ['hall', 'Прихожая / коридор'], ['corridor', 'Коридор'], ['storage', 'Кладовая'], ['balcony', 'Балкон / лоджия'], ['other', 'Другое'],
-];
 const FIXED_KINDS: [FixedKind, string][] = [['shaft', 'Шахта'], ['vent', 'Вентканал'], ['radiator', 'Радиатор'], ['electrical', 'Электрощиток'], ['column', 'Колонна'], ['riser', 'Стояк'], ['void', 'Полость вне площади'], ['other', 'Другое']];
 const WALL_KINDS: [WallKind, string][] = [['unknown', 'Неизвестно'], ['bearing', 'Несущая'], ['partition', 'Перегородка']];
 
@@ -47,6 +45,7 @@ export function MarkupScreen({ next }: { next: () => void }) {
   const index = useMemo(() => (src.page?.vectors ? new SnapIndex(src.page.vectors) : null), [src.page]);
 
   const [tool, setTool] = useState<Tool>('select');
+  const [newRoomType, setNewRoomType] = useState<RoomType>('other');
   const [draft, setDraft] = useState<Pt[]>([]);
   const [cursor, setCursor] = useState<{ p: Pt; kind: SnapKind } | null>(null);
   const [sel, setSel] = useState<Sel>(null);
@@ -170,7 +169,7 @@ export function MarkupScreen({ next }: { next: () => void }) {
         const poly = detectRoomPolygon(g, raw);
         if (!poly) { setMsg('Контур не найден: точка вне квартиры или помещение не замкнуто стенами и проёмами.'); break; }
         if (g.rooms.some((r) => Math.abs(roomArea(r.polygon) - roomArea(poly)) < 1e4 && dist(r.polygon[0], poly[0]) < 10)) { setMsg('Это помещение уже отмечено.'); break; }
-        const room: Room = { id: uid('r'), name: `Помещение ${g.rooms.length + 1}`, type: 'other', polygon: poly, source: 'manual', verifiedByManager: true, sourcePage: page };
+        const room: Room = { id: uid('r'), name: roomName(newRoomType), type: newRoomType, typeSource: 'manual', polygon: poly, source: 'manual', verifiedByManager: true, sourcePage: page };
         setG((x) => ({ ...x, rooms: [...x.rooms, room] }));
         setSel({ kind: 'room', id: room.id });
         break;
@@ -187,7 +186,8 @@ export function MarkupScreen({ next }: { next: () => void }) {
 
   function finishRoomPoly(pts: Pt[]) {
     if (pts.length < 3) return;
-    const room: Room = { id: uid('r'), name: `Помещение ${g.rooms.length + 1}`, type: 'other', polygon: pts, source: 'manual', verifiedByManager: true, sourcePage: page };
+    if (!simpleRing(pts)) { setMsg('Контур пересекает сам себя или имеет нулевую площадь. Исправьте точки или отмените построение.'); return; }
+    const room: Room = { id: uid('r'), name: roomName(newRoomType), type: newRoomType, typeSource: 'manual', polygon: pts, source: 'manual', verifiedByManager: true, sourcePage: page };
     setG((x) => ({ ...x, rooms: [...x.rooms, room] }));
     setSel({ kind: 'room', id: room.id });
     setDraft([]);
@@ -327,6 +327,8 @@ export function MarkupScreen({ next }: { next: () => void }) {
       {!doc && <div className="notice err">Сначала загрузите план на шаге «Загрузка» и выберите страницу.</div>}
       {src.error && <div className="notice err">{src.error}</div>}
       {!g.calibration && doc && <div className="notice">Масштаб не откалиброван: сейчас принят условный масштаб 1:50 для PDF. Инструмент «Масштаб» → два конца размерной линии → размер в мм.</div>}
+      {(tool === 'room' || tool === 'roomPoly') && <label className="field" style={{ maxWidth: 360 }}>Назначение новой зоны<select value={newRoomType} onChange={e => setNewRoomType(e.target.value as RoomType)}>{ROOM_TYPES.map(([t, label]) => <option key={t} value={t}>{label}</option>)}</select></label>}
+      <LearningPanel />
 
       <div className="toolbar" role="toolbar" aria-label="Инструменты разметки">
         {TOOLS.map((t) => (
@@ -490,7 +492,9 @@ function Properties({ sel, onDelete }: { sel: NonNullable<Sel>; onDelete: () => 
         <dl className="kv"><dt>Площадь</dt><dd>{(roomArea(r.polygon) / 1e6).toFixed(2).replace('.', ',')} м²</dd></dl>
         <div className="fields" style={{ marginTop: 8 }}>
           <label className="field">Название<input value={r.name} onChange={(e) => patch({ name: e.target.value })} /></label>
-          <label className="field">Назначение<select value={r.type} onChange={(e) => { const t = e.target.value as RoomType; patch({ type: t, name: r.name.startsWith('Помещение') ? ROOM_TYPES.find((x) => x[0] === t)![1] : r.name }); }}>{ROOM_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+          <label className="field">Назначение<select value={r.type} onChange={(e) => { const t = e.target.value as RoomType; patch({ type: t, name: roomName(t), typeSource: 'manual', typeBasis: undefined, verifiedByManager: true }); }}>{ROOM_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+          <span className="hint">{r.typeSource === 'manual' ? 'Назначение выбрано вами' : r.typeBasis ?? 'Автоматическое предположение'}</span>
+          {r.typeSource !== 'manual' && r.type !== 'other' && <button className="btn ghost sm" onClick={() => patch({ typeSource: 'manual', typeBasis: undefined, verifiedByManager: true })}>Подтвердить назначение</button>}
         </div>
         {verify(r.verifiedByManager)}
         <div className="actions"><button className="btn ghost sm" onClick={onDelete}>Удалить</button></div>

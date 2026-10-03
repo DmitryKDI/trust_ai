@@ -12,6 +12,8 @@ import { validate } from '../validate/validator';
 import { explain, isReady, type Rejected } from '../layout/variants';
 import { runVariantsInWorker } from '../layout/runVariants';
 import { QuickFix } from './QuickFix';
+import { LearningPanel } from '../learning/Panel';
+import { ROOM_TYPES, roomName } from '../learning/model';
 
 const ADDABLE: FurnitureType[] = ['bed-double', 'bed-single', 'bedside', 'wardrobe', 'dresser', 'sofa', 'armchair', 'coffee-table', 'tv-unit', 'dining', 'desk', 'kitchen-run', 'fridge', 'bathtub', 'shower', 'toilet', 'washbasin', 'washer', 'shoe-cabinet', 'shelving', 'play-rug'];
 
@@ -82,6 +84,7 @@ export function VariantsScreen({ next, back }: { next: () => void; back: () => v
       {g.rooms.length > 0 && <QuickFix busy={busy} onRebuild={() => setRebuild((n) => n + 1)} />}
       {project.planImage && <ScalePanel busy={busy} onApplied={() => setRebuild((n) => n + 1)} />}
       <RoomsPanel onChanged={build} busy={busy} onRescaled={() => setRebuild((n) => n + 1)} />
+      <LearningPanel />
       {rejected.length > 0 && (
         <div className="notice">
           <strong>Показано меньше трёх готовых вариантов:</strong>
@@ -283,10 +286,6 @@ function ReferenceCompare({ v }: { v: Variant }) {
   );
 }
 
-const ROOM_TYPES: [RoomType, string][] = [
-  ['kitchen-living', 'Кухня-гостиная'], ['kitchen', 'Кухня'], ['living', 'Гостиная'], ['bedroom', 'Спальня'], ['kids', 'Детская'],
-  ['bath', 'Ванная / санузел'], ['wc', 'Туалет'], ['hall', 'Прихожая'], ['corridor', 'Коридор'], ['storage', 'Кладовая / гардероб'], ['balcony', 'Балкон / лоджия'], ['other', 'Другое'],
-];
 
 /** Назначение комнат: одним кликом поправить то, что программа угадала неверно, и пересобрать варианты. */
 function RoomsPanel({ onChanged, busy, onRescaled }: { onChanged: () => void; busy: boolean; onRescaled: () => void }) {
@@ -308,7 +307,7 @@ function RoomsPanel({ onChanged, busy, onRescaled }: { onChanged: () => void; bu
   if (!g.rooms.length) return null;
   const setType = (id: string, type: RoomType) => {
     update((p) => {
-      const rooms = p.geometry.rooms.map((r) => (r.id === id ? { ...r, type, name: ROOM_TYPES.find((x) => x[0] === type)![1].split(' / ')[0], verifiedByManager: true } : r));
+      const rooms = p.geometry.rooms.map((r) => (r.id === id ? { ...r, type, name: roomName(type), typeSource: 'manual' as const, typeBasis: undefined, verifiedByManager: true } : r));
       const geometry = { ...p.geometry, rooms };
       return { ...p, geometry: { ...geometry, approvedHash: geometryHash(geometry) } };
     });
@@ -325,6 +324,8 @@ function RoomsPanel({ onChanged, busy, onRescaled }: { onChanged: () => void; bu
             <select value={r.type} onChange={(e) => setType(r.id, e.target.value as RoomType)}>
               {ROOM_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
+            <span className="hint">{r.typeSource === 'manual' ? 'Назначение выбрано вами' : r.typeBasis ?? 'Автоматическое предположение — проверьте назначение'}</span>
+            {r.typeSource !== 'manual' && r.type !== 'other' && <button className="btn ghost sm" disabled={busy} onClick={() => setType(r.id, r.type)}>Подтвердить назначение</button>}
             <input inputMode="decimal" placeholder="площадь по плану, м²" value={areaInput?.id === r.id ? areaInput.v : ''}
               onChange={(e) => setAreaInput({ id: r.id, v: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && applyArea()} />
           </label>

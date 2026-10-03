@@ -18,7 +18,7 @@ async function geometry(page: Page) {
   return page.evaluate(async () => {
     const req = indexedDB.open('trust-planner');
     const db: IDBDatabase = await new Promise((r) => { req.onsuccess = () => r(req.result); });
-    const all: { alias: string; geometry: { rooms: { name: string; type: string }[]; openings: { type: string; isEntrance: boolean }[]; approved: boolean } }[] =
+    const all: { alias: string; geometry: { rooms: { name: string; type: string; typeSource?: string }[]; openings: { type: string; isEntrance: boolean }[]; approved: boolean } }[] =
       await new Promise((r) => { const q = db.transaction('projects').objectStore('projects').getAll(); q.onsuccess = () => r(q.result); });
     return all.find((x) => x.alias === 'Быстрая правка')!.geometry;
   });
@@ -40,13 +40,14 @@ test('быстрая правка: добавить пропущенную ко�
 
   // Туалет №7 справа от коридора на net20 не распознан — добавляем щелчком внутри.
   await page.getByRole('button', { name: 'Добавить комнату' }).click();
+  await page.getByLabel('Назначение новой зоны').selectOption('bath');
   await clickImage(page, 0.70, 0.37);
   await expect(page.locator('.canvas-hint')).toContainText('Помещение добавлено');
-  await page.locator('.qf-chips').getByRole('button', { name: 'Санузел' }).click();
+  await page.locator('.qf-chips').getByRole('button', { name: 'Туалет', exact: true }).click();
   await page.waitForTimeout(600);
   const after = await geometry(page);
   expect(after.rooms.length).toBe(before.rooms.length + 1);
-  expect(after.rooms.some((r) => r.type === 'wc' && r.name === 'Санузел')).toBe(true);
+  expect(after.rooms.some((r) => r.type === 'wc' && r.name === 'Туалет' && r.typeSource === 'manual')).toBe(true);
   expect(after.approved).toBe(true);
 
   // Дверь из коридора в добавленный санузел: щелчок по стене между ними.
