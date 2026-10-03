@@ -20,6 +20,7 @@ function Invoke-NodeTool([string]$Executable, [string[]]$ToolArguments, [switch]
     $info = New-Object Diagnostics.ProcessStartInfo
     $info.FileName = $Executable
     $info.UseShellExecute = $false
+    $info.WorkingDirectory = (Get-Location).ProviderPath
     $info.Arguments = ($ToolArguments | ForEach-Object {
         if ($_ -match '"') { throw 'Unexpected quote in tool argument.' }
         '"' + $_ + '"'
