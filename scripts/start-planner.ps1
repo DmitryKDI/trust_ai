@@ -173,7 +173,7 @@ try {
         finally { $listener.Stop() }
         Write-Host 'Запускаю планировщик: http://127.0.0.1:5190'
         Write-Host 'Браузер откроется после запуска сервера. Не закрывайте это окно; остановка — Ctrl+C.'
-        $arguments = @('run', 'dev', '--', '--host', '127.0.0.1', '--port', '5190', '--strictPort')
+        $arguments = @('--prefix', $appDir, 'run', 'dev', '--', '--host', '127.0.0.1', '--port', '5190', '--strictPort')
         if (!$NoBrowser) { $arguments += '--open' }
         $serverExit = Invoke-NodeTool $node (@($npmCli) + $arguments)
         if ($serverExit -ne 0) { throw 'Сервер завершился с ошибкой. Подробности показаны выше.' }
