@@ -6,6 +6,7 @@ import { closeDir, components, dilate, erode, newBin, or, type Bin } from '../re
 import { assignTypes } from '../recognize/index';
 import { difference, intersection, pointInGeom, simplifyRing, union, fromRing, toGeom, polyArea } from '../geometry/poly';
 import { scaleGeometry } from '../editor/ops';
+import { smallEnclosures, type RoomBox } from './small-rooms';
 
 export interface QuickInput {
   rgba: Uint8ClampedArray | Uint8Array;
@@ -633,6 +634,78 @@ function quickPlanCore(inp: QuickInput): QuickResult {
     }
   }
 
+  const recoveredBoxes=new Map<number,RoomBox>();
+  // Маленькое помещение может совсем не иметь затравки из-за размеров и
+  // сантехники. Восстанавливаем только прямоугольный контур с тремя сплошными
+  // стенами и четвёртой стеной/дверным разрывом. Целая найденная зона защищена;
+  // маленький захваченный ею участок можно отделить по подтверждённым стенам.
+  if (!colored && grayInk) {
+    const T = strokeThreshold(free.d, w, h, pxPerM) ?? Math.max(3, Math.round(0.12*pxPerM));
+    if (T) {
+      // Цветные отметки высот не являются стенами на нейтральном техплане.
+      // Это дополнительный поиск только на монохромном пути.
+      const neutralInk = newBin(w,h);
+      for (let i=0,p=0; i<n; i++,p+=4) if (Math.max(Math.abs(rgba[p]-P[0]),Math.abs(rgba[p+1]-P[1]),Math.abs(rgba[p+2]-P[2]))>32 && Math.max(rgba[p],rgba[p+1],rgba[p+2])-Math.min(rgba[p],rgba[p+1],rgba[p+2])<=20) neutralInk.d[i]=1;
+      const colorInk = newBin(w,h);
+      for (let i=0,p=0;i<n;i++,p+=4) colorInk.d[i]=Math.max(Math.abs(rgba[p]-P[0]),Math.abs(rgba[p+1]-P[1]),Math.abs(rgba[p+2]-P[2]))>32 && !neutralInk.d[i] ? 1 : 0;
+      const colorWalls=openBin(colorInk,Math.max(3,Math.round(0.04*pxPerM)));
+      const colorParts=components(colorWalls),keepColor=new Uint8Array(colorParts.comps.length+1);
+      for (const c of colorParts.comps) if (Math.max(c.x1-c.x0+1,c.y1-c.y0+1)>=0.6*pxPerM) keepColor[c.id]=1;
+      for (let i=0;i<n;i++) if (keepColor[colorParts.labels[i]]) neutralInk.d[i]=1;
+      const wallMask = or(neutralInk, closeDir(neutralInk,gap,true), closeDir(neutralInk,gap,false));
+      const closedFat = openBin(wallMask, Math.min(T, Math.max(3, Math.round(0.08 * pxPerM))));
+      // Закрытие не должно превращать две размерные линии в стену: между
+      // настоящими гранями есть чернила/серая заливка, между размерами — бумага.
+      const filledWall = newBin(w,h);
+      for (let i=0,p=0; i<n; i++,p+=4) if (closedFat.d[i] && ((Math.max(Math.abs(rgba[p]-P[0]),Math.abs(rgba[p+1]-P[1]),Math.abs(rgba[p+2]-P[2]))>16 && Math.max(rgba[p],rgba[p+1],rgba[p+2])-Math.min(rgba[p],rgba[p+1],rgba[p+2])<=20) || keepColor[colorParts.labels[i]])) filledWall.d[i]=1;
+      const fat=openBin(filledWall,Math.max(3,Math.round(0.04*pxPerM)));
+      const hr=new Uint16Array(n),vr=new Uint16Array(n);
+      for (let y=0; y<h; y++) for (let x=0; x<w;) {
+        if (!fat.d[y*w+x]) {x++;continue;}
+        const start=x; while (x<w && fat.d[y*w+x]) x++;
+        for (let q=start; q<x; q++) hr[y*w+q]=x-start;
+      }
+      for (let x=0; x<w; x++) for (let y=0; y<h;) {
+        if (!fat.d[y*w+x]) {y++;continue;}
+        const start=y; while (y<h && fat.d[y*w+x]) y++;
+        for (let q=start; q<y; q++) vr[q*w+x]=y-start;
+      }
+      const thick=newBin(w,h);
+      for (let i=0;i<n;i++) if (fat.d[i] && Math.max(hr[i],vr[i])>=0.5*pxPerM) thick.d[i]=1;
+      const accepted = new Set(roomIds);
+      let nextId = 1;
+      for (const l of labels) if (l>=nextId) nextId=l+1;
+      const wallParts=components(thick),net=wallParts.comps.reduce((best,c)=>c.area>best.area?c:best,wallParts.comps[0]);
+      const networks=new Uint8Array(wallParts.comps.length+1);
+      if(net) for(const c of wallParts.comps) if(c===net || (c.area>=0.03*net.area && Math.max(c.x1-c.x0,c.y1-c.y0)>=3*pxPerM)) networks[c.id]=1;
+      for(let i=0;i<n;i++) if(!networks[wallParts.labels[i]]) thick.d[i]=0;
+      const boxes=smallEnclosures(thick,pxPerM);
+      // На этом этапе восстанавливаем блок из соседних небольших помещений.
+      // Одиночный участок коридора или рамка подписи не подтверждает новый санузел.
+      const paired=boxes.filter(box=>boxes.some(other=> {
+        if (other===box) return false;
+        const gap=Math.max(box.x0-other.x1,other.x0-box.x1);
+        const overlap=Math.max(0,Math.min(box.y1,other.y1)-Math.max(box.y0,other.y0));
+        return gap>=0 && gap<=0.35*pxPerM && overlap>=0.8*Math.min(box.y1-box.y0,other.y1-other.y0)
+          && Math.abs(box.y0-other.y0)<=0.35*pxPerM && Math.abs(box.y1-other.y1)<=0.35*pxPerM;
+      }));
+      for (const box of paired) {
+        let outside=0; const owners=new Map<number,number>();
+        const size=(box.x1-box.x0)*(box.y1-box.y0);
+        for (let y=box.y0; y<box.y1; y++) for (let x=box.x0; x<box.x1; x++) {
+          const l=labels[y*w+x]; if (accepted.has(l)) owners.set(l,(owners.get(l)??0)+1); if (exteriorIds.has(l)) outside++;
+        }
+        if (outside>0.1*size || [...owners].some(([l,count])=>(area.get(l)??0)<4*count)) continue;
+        // The enclosure must belong to the apartment, close to an existing room.
+        if (core && (box.x1<core.x0-m || box.x0>core.x1+m || box.y1<core.y0-m || box.y0>core.y1+m)) continue;
+        const id=nextId++;
+        for (let y=box.y0; y<box.y1; y++) for (let x=box.x0; x<box.x1; x++) {const old=labels[y*w+x]; if(accepted.has(old)) area.set(old,(area.get(old)??0)-1);labels[y*w+x]=id;}
+        roomIds.push(id); accepted.add(id); area.set(id,size); recoveredBoxes.set(id,box);
+      }
+      contacts = contactsOf(labels,w,h);
+    }
+  }
+
   // 3в. Цветная планировка: зоны — по цвету в первую очередь. Каждое сплошное пятно одного
   // цвета пола — отдельная зона: тонкие линии и надписи внутри (до ~6 см) пятно не режут,
   // замкнутые контуры внутри (сантехника, мебель, до 2 м²) заливаются. Белые помещения
@@ -986,7 +1059,8 @@ function quickPlanCore(inp: QuickInput): QuickResult {
   const rooms: Room[] = [];
   const pxPolys: { id: number; poly: Pt[] }[] = [];
   for (const id of roomIds) {
-    const poly = labelPolygon(roomPx, w, h, id, cell);
+    const box=recoveredBoxes.get(id);
+    const poly = box ? [{x:box.x0,y:box.y0},{x:box.x1,y:box.y0},{x:box.x1,y:box.y1},{x:box.x0,y:box.y1}] : labelPolygon(roomPx, w, h, id, cell);
     if (!poly || poly.length < 4) continue;
     const mm = poly.map((q) => ({ x: Math.round(U(q.x) * k), y: Math.round(U(q.y) * k) }));
     if (polyArea(mm) / 1e6 < 1) continue;

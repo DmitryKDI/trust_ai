@@ -1,0 +1,369 @@
+{
+  "sourceCommit": "0987cff0deb61621c0d7678c91a94c947590a64e",
+  "recognitionVersion": "small-enclosures-v15",
+  "algorithmBlobs": {
+    "app/src/quick/index.ts": "b799afa75edce5d8e5d442dca14368525f5976b4",
+    "app/src/quick/small-rooms.ts": "8724fb0686f152413e9fff4c59ebd998e4fea90e"
+  },
+  "lockfileSha256": "587fe0ffff60730d1c4624e78b6b8ee6806abf558816cbfcc608bfdfce064c72",
+  "node": "24.19.0",
+  "npm": "11.9.0",
+  "seed": null,
+  "scoreBefore": 0.8792958873172777,
+  "scoreAfter": 0.8792958873172777,
+  "baseline": 0.8691096089491812,
+  "changedCore": [],
+  "note": "Semantic comparison excludes generated IDs and timings. Current area/count/entrance score is not IoU. Geometry is deterministic; application IDs use time/randomness. Parallel shared-container timings are not mobile budgets. User indicated two small rooms; exact contours and room types are not approved ground truth.",
+  "plans": [
+    {
+      "id": "ex1",
+      "zonesBefore": 8,
+      "zonesAfter": 8,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 765,
+      "msAfter": 1105,
+      "changed": false
+    },
+    {
+      "id": "ex2",
+      "zonesBefore": 9,
+      "zonesAfter": 9,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 824,
+      "msAfter": 1041,
+      "changed": false
+    },
+    {
+      "id": "ex3",
+      "zonesBefore": 7,
+      "zonesAfter": 7,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 487,
+      "msAfter": 1269,
+      "changed": false
+    },
+    {
+      "id": "ex4",
+      "zonesBefore": 10,
+      "zonesAfter": 10,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 2029,
+      "msAfter": 3551,
+      "changed": false
+    },
+    {
+      "id": "net01",
+      "zonesBefore": 13,
+      "zonesAfter": 13,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 5813,
+      "msAfter": 4811,
+      "changed": false
+    },
+    {
+      "id": "net02",
+      "zonesBefore": 6,
+      "zonesAfter": 6,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 5642,
+      "msAfter": 4446,
+      "changed": false
+    },
+    {
+      "id": "net03",
+      "zonesBefore": 10,
+      "zonesAfter": 10,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 5959,
+      "msAfter": 5788,
+      "changed": false
+    },
+    {
+      "id": "net04",
+      "zonesBefore": 5,
+      "zonesAfter": 5,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 2820,
+      "msAfter": 3216,
+      "changed": false
+    },
+    {
+      "id": "net05",
+      "zonesBefore": 6,
+      "zonesAfter": 6,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 4315,
+      "msAfter": 6012,
+      "changed": false
+    },
+    {
+      "id": "net06",
+      "zonesBefore": 7,
+      "zonesAfter": 7,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 2058,
+      "msAfter": 2377,
+      "changed": false
+    },
+    {
+      "id": "net08",
+      "zonesBefore": 8,
+      "zonesAfter": 8,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 3278,
+      "msAfter": 3814,
+      "changed": false
+    },
+    {
+      "id": "net09",
+      "zonesBefore": 8,
+      "zonesAfter": 8,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 3097,
+      "msAfter": 2666,
+      "changed": false
+    },
+    {
+      "id": "net10",
+      "zonesBefore": 8,
+      "zonesAfter": 8,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 2723,
+      "msAfter": 3673,
+      "changed": false
+    },
+    {
+      "id": "net11",
+      "zonesBefore": 6,
+      "zonesAfter": 6,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 3256,
+      "msAfter": 3691,
+      "changed": false
+    },
+    {
+      "id": "net12",
+      "zonesBefore": 5,
+      "zonesAfter": 5,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 5594,
+      "msAfter": 9516,
+      "changed": false
+    },
+    {
+      "id": "net14",
+      "zonesBefore": 6,
+      "zonesAfter": 6,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 1960,
+      "msAfter": 3045,
+      "changed": false
+    },
+    {
+      "id": "net15",
+      "zonesBefore": 7,
+      "zonesAfter": 7,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 3012,
+      "msAfter": 3868,
+      "changed": false
+    },
+    {
+      "id": "net16",
+      "zonesBefore": 9,
+      "zonesAfter": 9,
+      "overlapsBefore": 1,
+      "overlapsAfter": 1,
+      "msBefore": 1241,
+      "msAfter": 1676,
+      "changed": false
+    },
+    {
+      "id": "net17",
+      "zonesBefore": 7,
+      "zonesAfter": 7,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 4229,
+      "msAfter": 5687,
+      "changed": false
+    },
+    {
+      "id": "net18",
+      "zonesBefore": 5,
+      "zonesAfter": 5,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 1319,
+      "msAfter": 1962,
+      "changed": false
+    },
+    {
+      "id": "net19",
+      "zonesBefore": 11,
+      "zonesAfter": 11,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 1847,
+      "msAfter": 2616,
+      "changed": false
+    },
+    {
+      "id": "net20",
+      "zonesBefore": 8,
+      "zonesAfter": 8,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 4168,
+      "msAfter": 6316,
+      "changed": false
+    },
+    {
+      "id": "net21",
+      "zonesBefore": 10,
+      "zonesAfter": 10,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 2601,
+      "msAfter": 4026,
+      "changed": false
+    },
+    {
+      "id": "net22",
+      "zonesBefore": 5,
+      "zonesAfter": 5,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 1214,
+      "msAfter": 1990,
+      "changed": false
+    },
+    {
+      "id": "net23",
+      "zonesBefore": 11,
+      "zonesAfter": 11,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 4085,
+      "msAfter": 4971,
+      "changed": false
+    },
+    {
+      "id": "net24",
+      "zonesBefore": 8,
+      "zonesAfter": 8,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 4294,
+      "msAfter": 7171,
+      "changed": false
+    },
+    {
+      "id": "net25",
+      "zonesBefore": 5,
+      "zonesAfter": 5,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 2475,
+      "msAfter": 4148,
+      "changed": false
+    },
+    {
+      "id": "net26",
+      "zonesBefore": 7,
+      "zonesAfter": 7,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 3764,
+      "msAfter": 4909,
+      "changed": false
+    },
+    {
+      "id": "net27",
+      "zonesBefore": 7,
+      "zonesAfter": 7,
+      "overlapsBefore": 1,
+      "overlapsAfter": 1,
+      "msBefore": 3140,
+      "msAfter": 3671,
+      "changed": false
+    },
+    {
+      "id": "net28",
+      "zonesBefore": 7,
+      "zonesAfter": 7,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 2729,
+      "msAfter": 3291,
+      "changed": false
+    },
+    {
+      "id": "net29",
+      "zonesBefore": 8,
+      "zonesAfter": 8,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 3718,
+      "msAfter": 5951,
+      "changed": false
+    },
+    {
+      "id": "net30",
+      "zonesBefore": 6,
+      "zonesAfter": 6,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 4580,
+      "msAfter": 7252,
+      "changed": false
+    },
+    {
+      "id": "syn-black",
+      "zonesBefore": 4,
+      "zonesAfter": 4,
+      "overlapsBefore": 0,
+      "overlapsAfter": 0,
+      "msBefore": 6439,
+      "msAfter": 9542,
+      "changed": false
+    }
+  ],
+  "newInputs": [
+    {
+      "id": "net07",
+      "zones": 5,
+      "doors": 5,
+      "windows": 0,
+      "ms": 2469,
+      "overlaps": [],
+      "invalidAreas": []
+    },
+    {
+      "id": "net13",
+      "zones": 8,
+      "doors": 8,
+      "windows": 14,
+      "ms": 3662,
+      "overlaps": [],
+      "invalidAreas": []
+    }
+  ]
+}

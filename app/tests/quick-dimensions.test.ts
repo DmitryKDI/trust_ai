@@ -24,7 +24,7 @@ function dimensionPlan(dimensions: boolean, wall = 35, annotationBlock = false) 
 }
 
 describe('монохромные планы с размерными линиями', () => {
-  for (const wall of [35, 160]) it(`светлые размеры не дробят комнату, стены ${wall}`, () => {
+  for (const wall of [35, 160]) it(`светлые размеры не дробят комнату, стены ${wall}`, { timeout:30_000 }, () => {
     const input = dimensionPlan(true, wall), result = quickPlan(input);
     expect(result.geometry.rooms).toHaveLength(3);
     const k = result.geometry.calibration!.mmPerUnit;
