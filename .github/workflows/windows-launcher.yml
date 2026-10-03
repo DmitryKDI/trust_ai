@@ -20,3 +20,9 @@ jobs:
       - name: Check install, repair, repeat launch and actual server
         shell: powershell
         run: ./scripts/test-windows-launcher.ps1
+      - name: Show npm diagnostic on failure
+        if: failure()
+        shell: powershell
+        run: |
+          $log = Get-ChildItem 'C:/npm/cache/_logs' -Filter '*debug*' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if ($log) { Get-Content -LiteralPath $log.FullName -Tail 80 }
