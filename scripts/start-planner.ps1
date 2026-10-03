@@ -21,10 +21,10 @@ function Test-NodeTools([string]$Directory) {
     try {
         $version = & $node --version
         if ($LASTEXITCODE -ne 0 -or $version -notmatch '^v(\d+)\.') { return $false }
-        if ([int]$Matches[1] -ne 24) { return $false }
+        if ([int]$Matches[1] -ne 24) { Write-Host "Не подходит Node.js: $version"; return $false }
         $null = & $npm --version
         return $LASTEXITCODE -eq 0
-    } catch { return $false }
+    } catch { Write-Host ("Проверка Node.js/npm: " + $_.Exception.Message); return $false }
 }
 
 function Install-PortableNode {
