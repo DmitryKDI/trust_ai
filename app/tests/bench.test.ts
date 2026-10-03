@@ -10,6 +10,7 @@ import { quickPlan } from '../src/quick';
 import { buildVariants, isReady } from '../src/layout/variants';
 import { resolveRules } from '../src/rules/rules';
 import { brief } from './fixtures/synthetic';
+import { verifiedBenchmarkInputs } from './helpers/bench-inputs';
 
 interface Truth {
   source: string;
@@ -104,7 +105,11 @@ it('стенд: распознавание планов', { timeout: 900_000 }, 
   expect(fs.existsSync(manifestPath), 'нет bench/manifest.json').toBe(true);
   const core: string[] = JSON.parse(fs.readFileSync(manifestPath, 'utf8')).core;
   expect(core.length, 'пустой основной набор').toBeGreaterThan(0);
-  const base = fs.existsSync(basePath) ? JSON.parse(fs.readFileSync(basePath, 'utf8')) : null;
+  const inputHashes = JSON.parse(fs.readFileSync(path.join(root, 'input-hashes.json'), 'utf8')).plans;
+  const verified = verifiedBenchmarkInputs(plansDir, inputHashes);
+  expect([...core].sort(), 'core изменён относительно исходных контрольных сумм').toEqual(verified.map(p => p.id).sort());
+  const base = JSON.parse(fs.readFileSync(basePath, 'utf8'));
+  expect(base.plans, 'размер core не совпадает с baseline').toBe(core.length);
   const before: Record<string, number> = base?.perPlan ?? {};
   const withBefore = (p: PlanResult) => p.row.replace(/^\| ([^|]+) \| ([^|]+) \|/, (_s, id, sc) => `| ${id} | ${sc} | ${before[id] != null ? (before[id] * 100).toFixed(0) : '—'} |`);
 
@@ -133,9 +138,9 @@ it('стенд: распознавание планов', { timeout: 900_000 }, 
   console.log(report);
 
   const perPlan = Object.fromEntries(res.map((p) => [p.id, Math.round(p.score * 1e6) / 1e6]));
-  if (process.env.BENCH_UPDATE || !base) {
-    // Понижать baseline нельзя (ТЗ 7.1 п. 2): только осознанно, с согласия заказчика.
-    if (base && total < base.total && !process.env.BENCH_ALLOW_LOWER) throw new Error(`новый балл ${total} ниже baseline ${base.total}: понижение baseline запрещено (BENCH_ALLOW_LOWER=1 — только по согласованию)`);
+  expect(total, 'общий балл ниже baseline').toBeGreaterThanOrEqual(base.total);
+  if (process.env.BENCH_UPDATE === '1') {
+    // Даже режим обновления не позволяет понизить порог для принятия правки.
     fs.writeFileSync(basePath, JSON.stringify({ total, plans: res.length, perPlan }, null, 1) + '\n');
     return;
   }

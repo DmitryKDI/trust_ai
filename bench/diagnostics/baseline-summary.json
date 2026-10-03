@@ -1,0 +1,536 @@
+[
+  {
+    "id": "ex1",
+    "zones": 8,
+    "doors": 8,
+    "windows": 0,
+    "ms": 684,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "ex2",
+    "zones": 9,
+    "doors": 9,
+    "windows": 5,
+    "ms": 604,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "ex3",
+    "zones": 7,
+    "doors": 6,
+    "windows": 0,
+    "ms": 373,
+    "overlaps": [
+      {
+        "a": 1,
+        "b": 2,
+        "areaM2": 0.191565
+      },
+      {
+        "a": 6,
+        "b": 7,
+        "areaM2": 0.165336
+      }
+    ],
+    "invalidAreas": []
+  },
+  {
+    "id": "ex4",
+    "zones": 10,
+    "doors": 6,
+    "windows": 3,
+    "ms": 1332,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net01",
+    "zones": 12,
+    "doors": 14,
+    "windows": 4,
+    "ms": 2526,
+    "overlaps": [
+      {
+        "a": 1,
+        "b": 5,
+        "areaM2": 0.053298
+      },
+      {
+        "a": 2,
+        "b": 4,
+        "areaM2": 0.124929
+      },
+      {
+        "a": 2,
+        "b": 7,
+        "areaM2": 0.026602
+      },
+      {
+        "a": 3,
+        "b": 5,
+        "areaM2": 0.035532
+      },
+      {
+        "a": 5,
+        "b": 8,
+        "areaM2": 0.026885
+      },
+      {
+        "a": 6,
+        "b": 8,
+        "areaM2": 0.053865
+      }
+    ],
+    "invalidAreas": []
+  },
+  {
+    "id": "net02",
+    "zones": 6,
+    "doors": 6,
+    "windows": 5,
+    "ms": 1667,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net03",
+    "zones": 9,
+    "doors": 7,
+    "windows": 5,
+    "ms": 1836,
+    "overlaps": [
+      {
+        "a": 1,
+        "b": 2,
+        "areaM2": 0.2314691832462363
+      },
+      {
+        "a": 2,
+        "b": 3,
+        "areaM2": 0.0809873615627177
+      },
+      {
+        "a": 2,
+        "b": 4,
+        "areaM2": 0.24534117250520737
+      },
+      {
+        "a": 3,
+        "b": 4,
+        "areaM2": 0.093020325977467
+      },
+      {
+        "a": 4,
+        "b": 5,
+        "areaM2": 0.05843521519237012
+      }
+    ],
+    "invalidAreas": []
+  },
+  {
+    "id": "net04",
+    "zones": 5,
+    "doors": 6,
+    "windows": 5,
+    "ms": 996,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net05",
+    "zones": 6,
+    "doors": 6,
+    "windows": 0,
+    "ms": 2490,
+    "overlaps": [
+      {
+        "a": 1,
+        "b": 3,
+        "areaM2": 0.8756641874700487
+      },
+      {
+        "a": 1,
+        "b": 4,
+        "areaM2": 0.07738577409082652
+      },
+      {
+        "a": 1,
+        "b": 5,
+        "areaM2": 0.11488334941062331
+      },
+      {
+        "a": 1,
+        "b": 6,
+        "areaM2": 0.24496600212204456
+      },
+      {
+        "a": 3,
+        "b": 4,
+        "areaM2": 0.038692887045428156
+      }
+    ],
+    "invalidAreas": []
+  },
+  {
+    "id": "net06",
+    "zones": 7,
+    "doors": 7,
+    "windows": 2,
+    "ms": 1816,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net08",
+    "zones": 8,
+    "doors": 10,
+    "windows": 10,
+    "ms": 2431,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net09",
+    "zones": 8,
+    "doors": 9,
+    "windows": 3,
+    "ms": 2016,
+    "overlaps": [
+      {
+        "a": 1,
+        "b": 2,
+        "areaM2": 0.10508852305359394
+      }
+    ],
+    "invalidAreas": []
+  },
+  {
+    "id": "net10",
+    "zones": 7,
+    "doors": 4,
+    "windows": 8,
+    "ms": 1755,
+    "overlaps": [
+      {
+        "a": 1,
+        "b": 2,
+        "areaM2": 0.06534692249712441
+      },
+      {
+        "a": 4,
+        "b": 5,
+        "areaM2": 0.053576927279010415
+      },
+      {
+        "a": 5,
+        "b": 7,
+        "areaM2": 0.07166878276375681
+      }
+    ],
+    "invalidAreas": []
+  },
+  {
+    "id": "net11",
+    "zones": 6,
+    "doors": 7,
+    "windows": 7,
+    "ms": 2515,
+    "overlaps": [
+      {
+        "a": 2,
+        "b": 6,
+        "areaM2": 0.082485
+      },
+      {
+        "a": 4,
+        "b": 5,
+        "areaM2": 0.14964
+      }
+    ],
+    "invalidAreas": []
+  },
+  {
+    "id": "net12",
+    "zones": 5,
+    "doors": 6,
+    "windows": 0,
+    "ms": 4860,
+    "overlaps": [
+      {
+        "a": 1,
+        "b": 2,
+        "areaM2": 0.0907754922036007
+      }
+    ],
+    "invalidAreas": []
+  },
+  {
+    "id": "net14",
+    "zones": 6,
+    "doors": 3,
+    "windows": 2,
+    "ms": 1991,
+    "overlaps": [
+      {
+        "a": 1,
+        "b": 4,
+        "areaM2": 0.0336
+      },
+      {
+        "a": 1,
+        "b": 5,
+        "areaM2": 0.06165
+      }
+    ],
+    "invalidAreas": []
+  },
+  {
+    "id": "net15",
+    "zones": 7,
+    "doors": 8,
+    "windows": 0,
+    "ms": 2714,
+    "overlaps": [
+      {
+        "a": 1,
+        "b": 3,
+        "areaM2": 0.224296
+      },
+      {
+        "a": 1,
+        "b": 5,
+        "areaM2": 0.224296
+      }
+    ],
+    "invalidAreas": []
+  },
+  {
+    "id": "net16",
+    "zones": 9,
+    "doors": 8,
+    "windows": 3,
+    "ms": 1191,
+    "overlaps": [
+      {
+        "a": 2,
+        "b": 3,
+        "areaM2": 0.12628
+      },
+      {
+        "a": 6,
+        "b": 9,
+        "areaM2": 1.457193
+      }
+    ],
+    "invalidAreas": []
+  },
+  {
+    "id": "net17",
+    "zones": 7,
+    "doors": 9,
+    "windows": 4,
+    "ms": 4026,
+    "overlaps": [
+      {
+        "a": 4,
+        "b": 6,
+        "areaM2": 0.09
+      }
+    ],
+    "invalidAreas": []
+  },
+  {
+    "id": "net18",
+    "zones": 5,
+    "doors": 4,
+    "windows": 3,
+    "ms": 1238,
+    "overlaps": [
+      {
+        "a": 1,
+        "b": 4,
+        "areaM2": 0.029403
+      },
+      {
+        "a": 2,
+        "b": 3,
+        "areaM2": 0.137016
+      },
+      {
+        "a": 4,
+        "b": 5,
+        "areaM2": 0.117612
+      }
+    ],
+    "invalidAreas": []
+  },
+  {
+    "id": "net19",
+    "zones": 11,
+    "doors": 9,
+    "windows": 4,
+    "ms": 1502,
+    "overlaps": [
+      {
+        "a": 3,
+        "b": 5,
+        "areaM2": 0.217362
+      },
+      {
+        "a": 7,
+        "b": 8,
+        "areaM2": 0.331296
+      }
+    ],
+    "invalidAreas": []
+  },
+  {
+    "id": "net20",
+    "zones": 8,
+    "doors": 12,
+    "windows": 6,
+    "ms": 3750,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net21",
+    "zones": 10,
+    "doors": 11,
+    "windows": 7,
+    "ms": 2537,
+    "overlaps": [
+      {
+        "a": 4,
+        "b": 7,
+        "areaM2": 0.194204
+      },
+      {
+        "a": 7,
+        "b": 8,
+        "areaM2": 0.097102
+      }
+    ],
+    "invalidAreas": []
+  },
+  {
+    "id": "net22",
+    "zones": 5,
+    "doors": 5,
+    "windows": 2,
+    "ms": 1093,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net23",
+    "zones": 11,
+    "doors": 7,
+    "windows": 8,
+    "ms": 3627,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net24",
+    "zones": 8,
+    "doors": 7,
+    "windows": 8,
+    "ms": 4349,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net25",
+    "zones": 5,
+    "doors": 4,
+    "windows": 7,
+    "ms": 2396,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net26",
+    "zones": 7,
+    "doors": 9,
+    "windows": 2,
+    "ms": 3377,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net27",
+    "zones": 7,
+    "doors": 6,
+    "windows": 0,
+    "ms": 2692,
+    "overlaps": [
+      {
+        "a": 1,
+        "b": 4,
+        "areaM2": 0.140712
+      },
+      {
+        "a": 1,
+        "b": 7,
+        "areaM2": 0.140712
+      },
+      {
+        "a": 4,
+        "b": 7,
+        "areaM2": 2.005226
+      }
+    ],
+    "invalidAreas": []
+  },
+  {
+    "id": "net28",
+    "zones": 7,
+    "doors": 7,
+    "windows": 1,
+    "ms": 2359,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net29",
+    "zones": 8,
+    "doors": 8,
+    "windows": 3,
+    "ms": 3164,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net30",
+    "zones": 6,
+    "doors": 8,
+    "windows": 1,
+    "ms": 4293,
+    "overlaps": [
+      {
+        "a": 1,
+        "b": 2,
+        "areaM2": 0.08715359616290033
+      },
+      {
+        "a": 4,
+        "b": 5,
+        "areaM2": 0.07455617370867729
+      }
+    ],
+    "invalidAreas": []
+  },
+  {
+    "id": "syn-black",
+    "zones": 4,
+    "doors": 4,
+    "windows": 3,
+    "ms": 4916,
+    "overlaps": [],
+    "invalidAreas": []
+  }
+]
