@@ -2,8 +2,15 @@
 import type { Calibration, Opening, PlanGeometry, Pt, Wall } from '../model/types';
 import { uid } from '../model/defaults';
 import { add, dist, dot, leftNormal, mul, norm, projectOnSegment, sub } from '../geometry/poly';
-import { wallPolygon } from '../geometry/plan';
+import { usesRoomWalls, wallPolygon } from '../geometry/plan';
 import type { Arc, FillRect, SnapIndex } from '../pdf/vectors';
+
+export const WALL_KINDS = [['unknown', 'Тип неизвестен'], ['bearing', 'Несущая'], ['partition', 'Перегородка']] as const;
+
+export function addPlanWall(g: PlanGeometry, wall: Wall): PlanGeometry {
+  if (![wall.a.x, wall.a.y, wall.b.x, wall.b.y, wall.thickness].every(Number.isFinite) || wall.thickness < 30 || dist(wall.a, wall.b) < 50) throw new Error('Нужны две разные точки стены и толщина от 30 мм.');
+  return { ...g, ...(usesRoomWalls(g) ? { wallMode: 'rooms' as const } : {}), walls: [...g.walls, wall] };
+}
 
 /** Предварительный масштаб до калибровки: PDF — как 1:50 (мм на pt), растр — 10 мм на пиксель. */
 export function provisionalScale(mime: string | undefined): number {

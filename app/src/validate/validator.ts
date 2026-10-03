@@ -5,6 +5,7 @@ import { bbox, bboxOverlap, dist, EPS_AREA, geomArea, intersection, outsideArea,
 import type { Rules } from '../rules/rules';
 import { planContext, roomOfPoint, type PlanContext } from './context';
 import { anyCellIn, distanceField, Grid, reachable } from './grid';
+import { usesRoomWalls, wallsGeom } from '../geometry/plan';
 
 const nameOf = (it: FurnitureItem) => CATALOG[it.type].name.toLowerCase();
 const issue = (severity: Issue['severity'], code: string, message: string, itemIds: string[] = []): Issue => ({ severity, code, message, itemIds });
@@ -206,8 +207,9 @@ export function baseGrid(ctx: PlanContext, step: number): Grid {
   for (const r of ctx.rooms) grid.paint(r.room.polygon, 0);
   // На скане (стены не нарисованы) между контурами соседних помещений лежит стена 200–500 мм,
   // а проём распознан тонкой линией: расширяем его поперёк стены, чтобы он соединял помещения.
-  const bridge = ctx.g.walls.length ? 0 : 600;
+  const bridge = usesRoomWalls(ctx.g) ? 600 : 0;
   for (const d of ctx.doors) grid.paint(bridge ? segmentRect(d.o.a, d.o.b, d.o.thickness + bridge) : d.rect, 0);
+  if (ctx.g.walls.length) grid.paintGeom(wallsGeom(ctx.g), 1);
   for (const f of ctx.fixed) grid.paint(f.poly, 1);
   m.set(step, grid);
   return grid;

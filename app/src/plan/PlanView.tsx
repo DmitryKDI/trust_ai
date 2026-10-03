@@ -1,8 +1,8 @@
 // SVG-чертёж плана в мм: стены, проёмы, помещения, инженерные элементы и мебель.
-import { forwardRef, useMemo, type PointerEvent as RPE, type ReactNode } from 'react';
+import { forwardRef, useId, useMemo, type PointerEvent as RPE, type ReactNode } from 'react';
 import type { FurnitureItem, Issue, PlanGeometry, PlanStyle, Pt } from '../model/types';
-import { doorSwingPolygon, roomArea, roomWallBand, wallPolygon, wallsGeom } from '../geometry/plan';
-import { bbox, labelPoint, type BBox, type Geom } from '../geometry/poly';
+import { doorSwingPolygon, roomArea, roomWallBand, usesRoomWalls, wallPolygon, wallsGeom } from '../geometry/plan';
+import { bbox, labelPoint, union, type BBox, type Geom } from '../geometry/poly';
 import { FurnitureSymbol, type FurniturePalette } from '../furniture/Symbol';
 
 export interface PlanPalette { wall: string; floor: string; sheet: string; text: string; furniture: FurniturePalette }
@@ -55,6 +55,7 @@ const WALL_COLORS = { bearing: '#3d4649', partition: '#7d878a', unknown: '#56606
 
 export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanView(p, ref) {
   const { g, items = [], issues = [], mode, underlay, selectedId } = p;
+  const unknownPatternId = 'wallUnknown' + useId().replace(/:/g, '');
   const vb = p.viewBox ?? planBounds(g);
   const walls = useMemo(() => wallsGeom(g), [g]);
   const errIds = new Set(issues.filter((i) => i.severity === 'error').flatMap((i) => i.itemIds));
@@ -66,7 +67,9 @@ export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanVi
   // Исходный план БТИ (картинка) показывается как есть — поверх только мебель.
   const orig = !!p.wallImage && !editor && p.planStyle === 'original';
   // План без векторных стен (скан): аккуратные стены — ровная полоса вокруг найденных помещений.
-  const band = useMemo(() => (!editor && !g.walls.length && g.rooms.length ? roomWallBand(g, 200) : null), [g, editor]);
+  const band = useMemo(() => (!editor && usesRoomWalls(g) ? roomWallBand(g, 200) : null), [g, editor]);
+  const displayedWalls = useMemo(() => union(band ?? [], walls), [band, walls]);
+  const typedWalls = useMemo(() => g.walls.map(w => ({ wall: w, geom: wallsGeom({ ...g, walls: [w] }) })), [g]);
 
   return (
     <svg
@@ -81,6 +84,7 @@ export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanVi
       <defs>
         <pattern id="tile" width="200" height="200" patternUnits="userSpaceOnUse"><rect width="200" height="200" fill="#eef3f4" /><path d="M0 0H200M0 0V200" stroke="#d5e0e2" strokeWidth="6" /></pattern>
         <pattern id="hatch" width="120" height="120" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><path d="M0 0V120" stroke="#c9cfcf" strokeWidth="14" /></pattern>
+        <pattern id={unknownPatternId} width="100" height="100" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="100" height="100" fill={pal.sheet} /><path d="M0 0V100" stroke={pal.wall} strokeWidth="35" /></pattern>
       </defs>
       <rect x={vb.minX} y={vb.minY} width={vb.maxX - vb.minX} height={vb.maxY - vb.minY} fill={editor ? '#f4f4f1' : pal.sheet} />
       {orig && <image href={p.wallImage!.url} x={0} y={0} width={p.wallImage!.widthMm} height={p.wallImage!.heightMm} preserveAspectRatio="none" />}
@@ -104,11 +108,14 @@ export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanVi
       {/* Стены */}
       {editor
         ? g.walls.map((w) => (
-            <path key={w.id} d={polyPath(wallPolygon(w))} fill={WALL_COLORS[w.kind]} fillOpacity={underlay ? 0.55 : 0.9}
+            <path key={w.id} data-wall-id={w.id} data-wall-kind={w.kind} d={polyPath(wallPolygon(w))} fill={w.kind === 'unknown' ? `url(#${unknownPatternId})` : WALL_COLORS[w.kind]} fillOpacity={underlay ? 0.55 : 0.9}
               stroke={w.id === selectedId ? '#d2691e' : w.verifiedByManager ? '#2f3739' : '#c9a36b'} strokeWidth={w.id === selectedId ? 2.5 : 1}
               strokeDasharray={w.verifiedByManager ? undefined : '6 4'} vectorEffect="non-scaling-stroke" onClick={() => p.onElementClick?.('wall', w.id)} />
           ))
-        : !orig && <path d={geomPath(band ?? walls)} fill={pal.wall} fillRule="evenodd" />}
+        : !orig && <path data-layer="wall-base" data-room-walls={!!band} d={geomPath(displayedWalls)} fill={pal.wall} fillRule="evenodd" />}
+      {!editor && typedWalls.filter(({ wall }) => !orig || wall.source === 'manual').map(({ wall: w, geom }) => <path key={'typed' + w.id}
+        data-wall-id={w.id} data-wall-kind={w.kind} d={geomPath(geom)} fill={w.kind === 'unknown' ? `url(#${unknownPatternId})` : w.kind === 'partition' ? pal.text : pal.wall}
+        fillRule="evenodd" stroke={pal.wall} strokeWidth={0.6} vectorEffect="non-scaling-stroke" />)}
 
       {/* Проёмы */}
       {!orig && g.openings.map((o) => {

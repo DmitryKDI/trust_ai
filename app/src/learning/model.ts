@@ -9,7 +9,7 @@ export const ROOM_TYPES: [RoomType, string][] = [
   ['kitchen-living', 'Кухня-гостиная'], ['hall', 'Прихожая'], ['corridor', 'Коридор'],
   ['storage', 'Кладовая / гардероб'], ['balcony', 'Балкон / лоджия'],
 ];
-export const roomName = (type: RoomType) => ROOM_TYPES.find(x => x[0] === type)?.[1] ?? 'Помещение';
+export const roomName = (type: RoomType) => type === 'bath' ? 'Ванная' : type === 'storage' ? 'Кладовая' : type === 'other' ? 'Помещение' : ROOM_TYPES.find(x => x[0] === type)?.[1] ?? 'Помещение';
 
 export interface LearnedPlan {
   version: 1;
@@ -44,9 +44,10 @@ export function validateGeometry(g: PlanGeometry) {
     if (room.typeSource && !['manual', 'learned'].includes(room.typeSource)) throw new Error('Неизвестный источник назначения.');
   }
   const point = (p: Pt) => p && Number.isFinite(p.x) && Number.isFinite(p.y);
+  if (g.wallMode && !['rooms', 'explicit'].includes(g.wallMode)) throw new Error('Неизвестная основа стен.');
   if (!point(g.calibration.p1) || !point(g.calibration.p2) || !Number.isFinite(g.calibration.mm) || g.calibration.mm <= 0) throw new Error('Некорректная калибровка.');
   if (![g.walls, g.openings, g.fixed, g.wetZones].every(Array.isArray)) throw new Error('Неполная геометрия.');
-  if (g.walls.some(w => !point(w.a) || !point(w.b) || !(w.thickness > 0) || !Number.isFinite(w.thickness))) throw new Error('Некорректные стены.');
+  if (g.walls.some(w => !point(w.a) || !point(w.b) || (w.a.x === w.b.x && w.a.y === w.b.y) || !(w.thickness > 0) || !Number.isFinite(w.thickness) || !['unknown', 'bearing', 'partition'].includes(w.kind))) throw new Error('Некорректные стены.');
   if (g.openings.some(o => !point(o.a) || !point(o.b) || !['door', 'window'].includes(o.type) || !(o.thickness > 0) || !Number.isFinite(o.thickness) || !['a', 'b'].includes(o.hinge) || ![1, -1].includes(o.swing))) throw new Error('Некорректные проёмы.');
   if ([...g.fixed, ...g.wetZones].some(f => !Array.isArray(f.polygon) || !simpleRing(f.polygon))) throw new Error('Некорректный контур препятствия.');
   for (let i = 0; i < g.rooms.length; i++) for (let j = i + 1; j < g.rooms.length; j++) {

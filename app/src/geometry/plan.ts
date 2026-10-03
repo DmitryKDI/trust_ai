@@ -10,6 +10,10 @@ export function wallPolygon(w: Wall): Pt[] {
   return segmentRect(w.a, w.b, w.thickness);
 }
 
+export function usesRoomWalls(g: PlanGeometry): boolean {
+  return g.rooms.length > 0 && (g.wallMode === 'rooms' || (!g.wallMode && !g.walls.length));
+}
+
 /** Прямоугольник проёма; чуть толще стены, чтобы гарантированно прорезать её. */
 export function openingRect(o: Opening, extra = 2): Pt[] {
   return segmentRect(o.a, o.b, o.thickness + extra);
@@ -104,6 +108,7 @@ export function geometryHash(g: PlanGeometry): string {
   const r = (n: number) => Math.round(n);
   const p = (q: Pt) => `${r(q.x)},${r(q.y)}`;
   const parts = [
+    ...(g.wallMode ? [`WM${g.wallMode}`] : []),
     ...g.walls.map((w) => `W${p(w.a)}|${p(w.b)}|${r(w.thickness)}|${w.kind}`),
     ...g.openings.map((o) => `O${o.type}${p(o.a)}|${p(o.b)}|${o.hinge}${o.swing}${o.isEntrance ? 'E' : ''}`),
     ...g.fixed.map((f) => `F${f.kind}${f.polygon.map(p).join(';')}`),

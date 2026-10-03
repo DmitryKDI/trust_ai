@@ -6,7 +6,7 @@ import { uid } from '../model/defaults';
 import { useStore } from '../state/store';
 import { useSourcePage } from '../state/useSource';
 import { PlanView, planBounds, polyPath } from '../plan/PlanView';
-import { calibrate, doorFromArc, isWallFill, openingFromClicks, scaleOf, snapPoint, wallFromFill, type SnapKind } from '../editor/ops';
+import { addPlanWall, WALL_KINDS, calibrate, doorFromArc, isWallFill, openingFromClicks, scaleOf, snapPoint, wallFromFill, type SnapKind } from '../editor/ops';
 import { SnapIndex } from '../pdf/vectors';
 import { detectRoomPolygon, geometryHash, openingWidth, roomArea } from '../geometry/plan';
 import { add, dist, mul, norm, sub, type BBox } from '../geometry/poly';
@@ -34,7 +34,6 @@ const TOOLS: { id: Tool; label: string; key: string; hint: string }[] = [
 ];
 
 const FIXED_KINDS: [FixedKind, string][] = [['shaft', 'Шахта'], ['vent', 'Вентканал'], ['radiator', 'Радиатор'], ['electrical', 'Электрощиток'], ['column', 'Колонна'], ['riser', 'Стояк'], ['void', 'Полость вне площади'], ['other', 'Другое']];
-const WALL_KINDS: [WallKind, string][] = [['unknown', 'Неизвестно'], ['bearing', 'Несущая'], ['partition', 'Перегородка']];
 
 export function MarkupScreen({ next }: { next: () => void }) {
   const { project, editGeometry, update, undo, redo, canUndo, canRedo, rules } = useStore();
@@ -99,7 +98,7 @@ export function MarkupScreen({ next }: { next: () => void }) {
 
   const addWall = (a: Pt, b: Pt) => {
     if (dist(a, b) < 50) return;
-    setG((x) => ({ ...x, walls: [...x.walls, { id: uid('w'), a, b, thickness: wallT, kind: wallKind, source: 'manual', verifiedByManager: true, sourcePage: page }] }));
+    setG(x => addPlanWall(x, { id: uid('w'), a, b, thickness: wallT, kind: wallKind, source: 'manual', verifiedByManager: true, sourcePage: page }));
   };
   const rectPoly = (a: Pt, b: Pt): Pt[] => [{ x: a.x, y: a.y }, { x: b.x, y: a.y }, { x: b.x, y: b.y }, { x: a.x, y: b.y }];
 
@@ -136,7 +135,7 @@ export function MarkupScreen({ next }: { next: () => void }) {
         if (!f) { setMsg('Под курсором нет заливки стены. Нарисуйте стену инструментом «Стена».'); break; }
         const w = wallFromFill(f, k, page, g);
         if (g.walls.some((x) => dist(x.a, w.a) < 5 && dist(x.b, w.b) < 5)) { setMsg('Эта стена уже добавлена.'); break; }
-        setG((x) => ({ ...x, walls: [...x.walls, w] }));
+        setG(x => addPlanWall(x, w));
         setSel({ kind: 'wall', id: w.id });
         break;
       }

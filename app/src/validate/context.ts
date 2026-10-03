@@ -1,6 +1,6 @@
 // Предрасчёт статической части плана для быстрых проверок (кэшируется на версию геометрии).
 import type { Opening, PlanGeometry, Pt, Room } from '../model/types';
-import { doorSwingPolygon, geometryHash, interiorGeom, openingRect, wallsGeom } from '../geometry/plan';
+import { doorSwingPolygon, geometryHash, interiorGeom, openingRect, usesRoomWalls, wallsGeom } from '../geometry/plan';
 import { add, bbox, centroid, difference, geomBBox, mul, norm, pointInGeom, segmentRect, toGeom, union, type BBox, type Geom } from '../geometry/poly';
 import type { Rules } from '../rules/rules';
 
@@ -53,7 +53,7 @@ export function planContext(g: PlanGeometry, rules: Rules): PlanContext {
 
   const interior = interiorGeom(g);
   // План без векторных стен (скан, картинка): стена — всё вокруг помещений, кроме дверных проёмов.
-  const walls = g.walls.length ? wallsGeom(g) : wallsFromRooms(g, interior);
+  const walls = usesRoomWalls(g) ? union(wallsFromRooms(g, interior), wallsGeom(g)) : wallsGeom(g);
   const ctx: PlanContext = {
     g,
     hash: geometryHash(g),

@@ -1,6 +1,6 @@
 // Проходимость по сетке: занятость → евклидово расстояние до препятствия → BFS от входа.
 import type { Pt } from '../model/types';
-import { bbox, pointInPolygon, type BBox } from '../geometry/poly';
+import { bbox, geomBBox, pointInGeom, pointInPolygon, type BBox, type Geom } from '../geometry/poly';
 
 export class Grid {
   readonly nx: number;
@@ -33,6 +33,16 @@ export class Grid {
     const g = new Grid(this.b, this.step);
     g.blocked.set(this.blocked);
     return g;
+  }
+  /** Булева геометрия стен, включая вырезанные дверные проёмы и внутренние кольца. */
+  paintGeom(geom: Geom, value: 0 | 1) {
+    if (!geom.length) return;
+    const b = geomBBox(geom);
+    const [i0, j0] = this.cellOf({ x: b.minX, y: b.minY });
+    const [i1, j1] = this.cellOf({ x: b.maxX, y: b.maxY });
+    for (let j = Math.max(0, j0); j <= Math.min(this.ny - 1, j1); j++)
+      for (let i = Math.max(0, i0); i <= Math.min(this.nx - 1, i1); i++)
+        if (pointInGeom(this.center(i, j), geom)) this.blocked[j * this.nx + i] = value;
   }
 }
 

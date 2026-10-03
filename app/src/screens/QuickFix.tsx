@@ -1,16 +1,17 @@
 // Быстрая правка распознанного плана прямо на экране вариантов: каждая типичная ошибка
 // автоматического чтения исправляется одним-двумя щелчками поверх исходной картинки.
 import { useCallback, useEffect, useRef, useState, type PointerEvent as RPE } from 'react';
-import type { Opening, PlanGeometry, Pt, Room, RoomType } from '../model/types';
+import type { Opening, PlanGeometry, Pt, Room, RoomType, Wall, WallKind } from '../model/types';
 import { uid } from '../model/defaults';
 import { useStore } from '../state/store';
 import { PlanView, planBounds, polyPath } from '../plan/PlanView';
-import { geometryHash } from '../geometry/plan';
-import { pointInPolygon, type BBox } from '../geometry/poly';
+import { geometryHash, usesRoomWalls } from '../geometry/plan';
+import { dist, pointInPolygon, type BBox } from '../geometry/poly';
+import { addPlanWall, WALL_KINDS } from '../editor/ops';
 import { doorAt, mergeRooms, newRoomFromImage, roomFromCorners, splitRoom, type ImageData8 } from '../editor/quickfix';
 import { ROOM_TYPES, roomName } from '../learning/model';
 
-type Tool = 'select' | 'add' | 'rect' | 'split' | 'merge' | 'door';
+type Tool = 'select' | 'add' | 'rect' | 'split' | 'merge' | 'door' | 'wall';
 
 const TOOLS: { id: Tool; label: string; hint: string }[] = [
   { id: 'select', label: 'Выбрать', hint: 'Щёлкните помещение или дверь — внизу появятся действия. Колесо мыши — масштаб.' },
@@ -19,6 +20,7 @@ const TOOLS: { id: Tool; label: string; hint: string }[] = [
   { id: 'split', label: 'Разрезать', hint: 'Проведите линию по стене между слипшимися помещениями: два щелчка — начало и конец.' },
   { id: 'merge', label: 'Объединить', hint: 'Щёлкните два куска одного помещения (например, разрезанного надписью).' },
   { id: 'door', label: 'Дверь', hint: 'Щёлкните по стене, где должна быть дверь. Снаружи квартиры — входная.' },
+  { id: 'wall', label: 'Стена', hint: 'Два щелчка — начало и конец оси стены. Задайте тип и толщину; Esc — отменить.' },
 ];
 
 const nameOf = roomName;
@@ -29,7 +31,9 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
   const img = project.planImage ?? null;
   const [tool, setTool] = useState<Tool>('select');
   const [newRoomType, setNewRoomType] = useState<RoomType>('other');
-  const [sel, setSel] = useState<{ kind: 'room' | 'opening'; id: string } | null>(null);
+  const [sel, setSel] = useState<{ kind: 'room' | 'opening' | 'wall'; id: string } | null>(null);
+  const [wallKind, setWallKind] = useState<WallKind>('unknown');
+  const [wallT, setWallT] = useState(100);
   const [draft, setDraft] = useState<Pt[]>([]);
   const [first, setFirst] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -109,6 +113,16 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
   const onDown = (e: RPE<SVGSVGElement>) => {
     if (e.button !== 0 || tool === 'select' || tool === 'merge') return;
     const p = toWorld(e);
+    if (tool === 'wall') {
+      const q = { x: Math.round(p.x), y: Math.round(p.y) };
+      if (!draft.length) { setDraft([q]); return; }
+      const a = draft[0];
+      if (dist(a, q) < 50) { setMsg('Выберите конец стены дальше от первой точки.'); return; }
+      const wall: Wall = { id: uid('w'), a, b: q, thickness: wallT, kind: wallKind, source: 'manual', verifiedByManager: true, sourcePage: g.sourcePage };
+      fix(x => addPlanWall(x, wall), 'Стена добавлена. Пересоберите мебель и сохраните проверенный план для обучения.');
+      setDraft([]); setSel({ kind: 'wall', id: wall.id }); setTool('select');
+      return;
+    }
     if (tool === 'add') {
       if (!pixels.current) { setMsg('Картинка плана ещё загружается или недоступна — помещение можно обвести на шаге «Разметка».'); return; }
       if (roomAt(p)) { setMsg('Здесь уже есть помещение. Если оно неверное — выберите его и удалите, затем добавьте заново.'); return; }
@@ -173,11 +187,13 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
       setTool('select');
       return;
     }
-    if (tool === 'select' && (kind === 'room' || kind === 'opening')) { setSel({ kind, id }); setMsg(null); }
+    if (tool === 'select' && (kind === 'room' || kind === 'opening' || kind === 'wall')) { setSel({ kind, id }); setMsg(null); }
   };
 
   const room = sel?.kind === 'room' ? g.rooms.find((r) => r.id === sel.id) ?? null : null;
   const opening = sel?.kind === 'opening' ? g.openings.find((o) => o.id === sel.id) ?? null : null;
+  const wall = sel?.kind === 'wall' ? g.walls.find(w => w.id === sel.id) ?? null : null;
+  const setWall = (patch: Partial<Wall>) => fix(x => ({ ...x, walls: x.walls.map(w => w.id === wall!.id ? { ...w, ...patch, source: 'manual', verifiedByManager: true } : w) }));
   const setRoom = (patch: Partial<Room>) => fix((x) => ({ ...x, rooms: x.rooms.map((r) => (r.id === room!.id ? { ...r, ...patch, verifiedByManager: true } : r)) }));
   const setOpening = (fn: (o: Opening, all: Opening[]) => Opening[]) => fix((x) => ({ ...x, openings: fn(x.openings.find((o) => o.id === opening!.id)!, x.openings) }));
   const firstRoom = first ? g.rooms.find((r) => r.id === first) : null;
@@ -196,6 +212,11 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
         <button className="tool" onClick={() => setView(null)}>Вписать</button>
       </div>
       {(tool === 'add' || tool === 'rect') && <label className="field" style={{ maxWidth: 360 }}>Назначение новой зоны<select value={newRoomType} onChange={e => setNewRoomType(e.target.value as RoomType)}>{ROOM_TYPES.map(([t, label]) => <option key={t} value={t}>{label}</option>)}</select></label>}
+      {tool === 'wall' && <div className="fields">
+        <label className="field">Тип новой стены<select value={wallKind} onChange={e => setWallKind(e.target.value as WallKind)}>{WALL_KINDS.map(([t, label]) => <option key={t} value={t}>{label}</option>)}</select></label>
+        <label className="field">Толщина новой стены, мм<input type="number" min="30" value={wallT} onChange={e => setWallT(Math.max(30, Number(e.target.value) || 100))} /></label>
+      </div>}
+      {g.rooms.length > 0 && (g.walls.length > 0 || tool === 'wall') && <label className="check-inline"><input type="checkbox" checked={usesRoomWalls(g)} onChange={e => fix(x => ({ ...x, wallMode: e.target.checked ? 'rooms' : 'explicit' }), 'Основа стен изменена. Пересоберите варианты.')} />Использовать границы зон как основу стен</label>}
       <div className="canvas-wrap qf-canvas">
         <PlanView ref={svgRef} g={g} mode="editor" viewBox={vb} selectedId={sel?.id} labelScale={1.8}
           underlay={img ? { url: img.url, widthMm: img.widthMm, heightMm: img.heightMm, opacity: 0.45 } : null}
@@ -237,6 +258,15 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
           </div>
         </div>
       )}
+      {wall && <div className="qf-actions">
+        <div className="small"><b>Стена</b> · длина {Math.round(dist(wall.a, wall.b))} мм</div>
+        <div className="fields">
+          <label className="field">Тип выбранной стены<select value={wall.kind} onChange={e => setWall({ kind: e.target.value as WallKind })}>{WALL_KINDS.map(([t, label]) => <option key={t} value={t}>{label}</option>)}</select></label>
+          <label className="field">Толщина выбранной стены, мм<input type="number" min="30" value={wall.thickness} onChange={e => setWall({ thickness: Math.max(30, Number(e.target.value) || 100) })} /></label>
+        </div>
+        <button className="btn ghost sm" onClick={() => { fix(x => ({ ...x, walls: x.walls.filter(w => w.id !== wall.id) }), 'Стена удалена.'); setSel(null); }}>Удалить стену</button>
+      </div>}
+      {(wall || tool === 'wall') && <p className="muted small">Тёмная стена — несущая, светлее — перегородка, штриховка — тип неизвестен. Тип задаётся вами. Стена не разделяет назначения зон: для этого используйте «Разрезать».</p>}
       {changed && (
         <div className="actions">
           <button className="btn" disabled={busy} onClick={() => { setChanged(false); onRebuild(); }}>{busy ? 'Пересобираю…' : 'Пересобрать варианты по исправленному плану'}</button>

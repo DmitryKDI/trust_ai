@@ -88,6 +88,8 @@ export interface PlanGeometry {
   sourcePage: number | null;
   calibration: Calibration | null;
   walls: Wall[];
+  /** Скан: границы зон остаются основой стен при добавлении ручных перегородок. */
+  wallMode?: 'rooms' | 'explicit';
   openings: Opening[];
   fixed: FixedElement[];
   wetZones: WetZone[];

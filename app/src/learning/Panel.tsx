@@ -5,13 +5,13 @@ import { clearLearning, forgetLearnedPlan, getFile, importLearning, learningBack
 
 export function LearningPanel() {
   const { project } = useStore();
-  const [counts, setCounts] = useState({ plans: 0, types: 0 });
+  const [counts, setCounts] = useState({ plans: 0, types: 0, walls: 0 });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const refresh = async () => {
     const plans = await listLearnedPlans();
-    setCounts({ plans: plans.length, types: plans.reduce((n, p) => n + p.geometry.rooms.filter(r => r.typeSource === 'manual' && r.type !== 'other').length, 0) });
+    setCounts({ plans: plans.length, types: plans.reduce((n, p) => n + p.geometry.rooms.filter(r => r.typeSource === 'manual' && r.type !== 'other').length, 0), walls: plans.reduce((n, p) => n + p.geometry.walls.length, 0) });
   };
   useEffect(() => { refresh().catch(e => setError(String(e.message ?? e))); }, []);
   const action = async (fn: () => Promise<void>) => {
@@ -28,12 +28,12 @@ export function LearningPanel() {
   return <details className="card" style={{ marginTop: 14 }}>
     <summary>Обучение на моих правках · страниц: {counts.plans}</summary>
     <p className="muted small">Сначала проверьте все границы и проёмы. Кнопка сохраняет эту страницу для повторной загрузки того же файла. Для других планов используются только назначения, выбранные вами вручную; контуры не переносятся.</p>
-    <p className="small">Сохранено страниц: {counts.plans} · назначений: {counts.types}. Новое предположение требует согласующихся примеров из трёх разных файлов.</p>
+    <p className="small">Сохранено страниц: {counts.plans} · назначений: {counts.types} · стен: {counts.walls}. Новое предположение назначения требует согласующихся примеров из трёх разных файлов.</p>
     <div className="actions">
       <button className="btn secondary" disabled={busy || !project.geometry.rooms.length} onClick={() => action(async () => {
         const key = await sourceKey();
         await saveLearnedPlan(checkedPlan(key, project.geometry));
-        setMessage('Проверенный план сохранён. При повторной загрузке этого файла и страницы будут использованы ваши границы и назначения.');
+        setMessage('Проверенный план сохранён. При повторной загрузке этого файла и страницы будут использованы ваши стены, границы и назначения.');
       })}>Сохранить проверенный план для обучения</button>
       <button className="btn ghost sm" disabled={busy} onClick={() => action(async () => { await forgetLearnedPlan(await sourceKey()); setMessage('Эта страница исключена из обучения. Проект сохранён.'); })}>Забыть эту страницу</button>
     </div>
