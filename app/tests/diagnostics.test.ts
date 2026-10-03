@@ -9,11 +9,17 @@ import { quickPlan } from '../src/quick';
 import { polyArea, overlapArea, labelPoint } from '../src/geometry/poly';
 
 it.skipIf(!process.env.PLAN_DIAGNOSTICS)('экспорт исходной геометрии контрольного набора', { timeout: 600_000 }, () => {
-  const input = path.resolve(__dirname, '../../bench/plans');
+  const customInput = process.env.PLAN_DIAGNOSTIC_INPUT;
+  const input = customInput ? path.resolve(customInput) : path.resolve(__dirname, '../../bench/plans');
+  const expectedCount = customInput ? Number(process.env.PLAN_DIAGNOSTIC_COUNT) : 33;
+  expect(Number.isInteger(expectedCount) && expectedCount > 0, 'explicit positive PLAN_DIAGNOSTIC_COUNT is required for a separate input set').toBe(true);
   const out = path.resolve(process.env.PLAN_DIAGNOSTICS!);
   fs.mkdirSync(out, { recursive: true });
   const summaries: unknown[] = [];
-  for (const id of fs.readdirSync(input).sort()) {
+  const ids: string[] = customInput
+    ? fs.readdirSync(input).filter(id => fs.statSync(path.join(input, id)).isDirectory()).sort()
+    : JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../bench/manifest.json'), 'utf8')).core;
+  for (const id of ids) {
     const dir = path.join(input, id);
     const img = fs.readdirSync(dir).find(f => /^plan\.(png|jpe?g)$/i.test(f));
     expect(img, `missing image: ${id}`).toBeTruthy();
@@ -41,6 +47,6 @@ it.skipIf(!process.env.PLAN_DIAGNOSTICS)('экспорт исходной гео
     fs.copyFileSync(path.join(dir, img!), path.join(out, record.img));
     summaries.push({ id, zones: rooms.length, doors: g.openings.filter(o => o.type === 'door').length, windows: g.openings.filter(o => o.type === 'window').length, ms: result.report.ms, ...record.checks });
   }
-  expect(summaries).toHaveLength(33);
+  expect(summaries).toHaveLength(expectedCount);
   fs.writeFileSync(path.join(out, 'summary.json'), JSON.stringify(summaries, null, 2));
 });

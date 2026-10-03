@@ -61,7 +61,7 @@ for file in sorted(args.directory.glob('*.json')):
     target = args.directory / f"review-{d['id']}.png"
     card.save(target)
     cards.append((d['id'], target.name))
-html = '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Диагностика зон</title><style>body{font:16px sans-serif;margin:20px}img{width:100%;height:auto}article{margin:30px 0}</style><h1>Исходная диагностика: 33 плана</h1><p>Цвета обозначают номера зон, а не типы помещений. Геометрические эталоны пока не согласованы.</p>'
+html = f'<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Диагностика зон</title><style>body{{font:16px sans-serif;margin:20px}}img{{width:100%;height:auto}}article{{margin:30px 0}}</style><h1>Исходная диагностика: {len(cards)} планов</h1><p>Цвета обозначают номера зон, а не типы помещений. Геометрические эталоны пока не согласованы.</p>'
 html += ''.join(f'<article id="{id}"><h2>{id}</h2><a href="{name}"><img src="{name}" alt="{id}: оригинал, схема и наложение"></a></article>' for id, name in cards)
 (args.directory / 'index.html').write_text(html, encoding='utf-8')
 print(f'Rendered {len(cards)} plans')
