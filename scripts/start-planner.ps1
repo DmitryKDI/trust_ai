@@ -49,7 +49,17 @@ function Install-PortableNode {
     try {
         $zip = Join-Path $tempDir $fileName
         # A version-specific URL prevents the latest alias changing the ZIP mid-download.
-        Invoke-WebRequest -UseBasicParsing -Uri "https://nodejs.org/dist/$version/$fileName" -OutFile ([WildcardPattern]::Escape($zip)) -TimeoutSec 300
+        # Write through .NET so brackets in a user path remain literal on PS 5.1.
+        $request = [Net.HttpWebRequest]::Create("https://nodejs.org/dist/$version/$fileName")
+        $request.Timeout = 300000
+        $request.ReadWriteTimeout = 300000
+        $response = $request.GetResponse()
+        try {
+            $stream = $response.GetResponseStream()
+            $output = [IO.File]::Create($zip)
+            try { $stream.CopyTo($output) }
+            finally { $output.Dispose(); $stream.Dispose() }
+        } finally { $response.Dispose() }
         if ((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash -ne $entry.Groups[1].Value) {
             throw 'Контрольная сумма Node.js не совпала. Скачанный файл не будет запускаться.'
         }
