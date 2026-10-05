@@ -13,7 +13,7 @@ export function defaultBrief(): Brief {
   };
 }
 
-/** Референсы по умолчанию — чужие фото, явно помеченные как «референс» с источником. */
+/** Изображения добавляются менеджером или сохраняются из 3D-сцены. */
 export function defaultConcept(): Concept {
   return {
     styleName: 'Тёплая сдержанность',
@@ -24,11 +24,7 @@ export function defaultConcept(): Concept {
       { name: 'Графит', hex: '#4a4f52' },
     ],
     materials: ['Натуральный дуб на полу', 'Матовая краска и фактурная штукатурка', 'Керамогранит под камень в мокрых зонах', 'Плотный текстиль: лён и букле'],
-    references: [
-      { id: 'ref1', url: 'https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?w=900&q=80', caption: 'Светлая общая зона', sourceName: 'Unsplash', sourceUrl: 'https://unsplash.com/photos/1600210492486-724fe5c67fb0', kind: 'reference' },
-      { id: 'ref2', url: 'https://images.unsplash.com/photo-1600607687920-4e2a09cf159d?w=900&q=80', caption: 'Натуральные фактуры', sourceName: 'Unsplash', sourceUrl: 'https://unsplash.com/photos/1600607687920-4e2a09cf159d', kind: 'reference' },
-      { id: 'ref3', url: 'https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?w=900&q=80', caption: 'Спокойная спальня', sourceName: 'Unsplash', sourceUrl: 'https://unsplash.com/photos/1618221195710-dd6b41faaea6', kind: 'reference' },
-    ],
+    references: [],
     rationale: 'Светлая база расширяет пространство, тёплое дерево и текстиль добавляют уюта, графит собирает композицию.',
   };
 }

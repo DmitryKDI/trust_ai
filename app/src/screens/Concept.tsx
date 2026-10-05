@@ -3,6 +3,7 @@ import type { ConceptReference } from '../model/types';
 import { uid } from '../model/defaults';
 import { useStore } from '../state/store';
 import { PlanView, planBounds } from '../plan/PlanView';
+import { ScenePanel } from '../scene/ScenePanel';
 
 export function ConceptScreen({ next }: { next: () => void }) {
   const { project, update } = useStore();
@@ -10,6 +11,13 @@ export function ConceptScreen({ next }: { next: () => void }) {
   const v = project.variants.find((x) => x.id === project.selectedVariantId);
   const set = (p: Partial<typeof c>) => update((x) => ({ ...x, concept: { ...x.concept, ...p } }));
   const [newRef, setNewRef] = useState({ caption: '', sourceName: '', kind: 'reference' as ConceptReference['kind'] });
+
+  // Удаляем только три старых встроенных фото-заглушки. Собственные референсы сохраняются.
+  useEffect(() => {
+    const stock = ['photo-1600210492486-724fe5c67fb0', 'photo-1600607687920-4e2a09cf159d', 'photo-1618221195710-dd6b41faaea6'];
+    const isStock = (r: ConceptReference) => /^ref[123]$/.test(r.id) && stock.some(id => r.url.startsWith(`https://images.unsplash.com/${id}?`));
+    if (c.references.some(isStock)) update(p => ({ ...p, concept: { ...p.concept, references: p.concept.references.filter(r => !isStock(r)) } }));
+  }, [c.references, update]);
 
   // Вставка изображения из буфера обмена (Ctrl+V) — как референс.
   useEffect(() => {
@@ -37,7 +45,8 @@ export function ConceptScreen({ next }: { next: () => void }) {
     <div className="view">
       <div className="eyebrow">Шаг 6 · образ интерьера</div>
       <h1 className="heading">Мини-концепция</h1>
-      <p className="lead">Палитра, материалы и 2–4 изображения. Чужие интерьеры подписываются как «референс» с источником — это настроение, а не визуализация этой квартиры.</p>
+      <p className="lead">Объёмная схема квартиры, палитра и материалы. Сохраните ракурсы 3D для клиента или добавьте собственные референсы.</p>
+      <ScenePanel />
       <div className="grid2">
         <section className="card">
           <label className="field">Стиль<input value={c.styleName} onChange={(e) => set({ styleName: e.target.value })} /></label>
@@ -66,7 +75,7 @@ export function ConceptScreen({ next }: { next: () => void }) {
         </section>
       </div>
       <section className="card" style={{ marginTop: 18 }}>
-        <h2>Изображения ({c.references.length} из 2–4)</h2>
+        <h2>Изображения ({c.references.length} из 4)</h2>
         <div className="refs">
           {c.references.map((r) => (
             <div className="ref" key={r.id}>
@@ -88,7 +97,7 @@ export function ConceptScreen({ next }: { next: () => void }) {
             <label className="btn secondary" style={{ alignSelf: 'end', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>Загрузить изображение<input type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => addImage(e.target.files?.[0])} /></label>
           </div>
         )}
-        {c.references.length < 2 && <div className="notice">Добавьте хотя бы два изображения.</div>}
+        {!c.references.length && <div className="notice">Сохраните ракурс 3D или добавьте изображение.</div>}
         <p className="muted small">Картинку можно вставить из буфера обмена: Ctrl+V.</p>
       </section>
       <div className="actions"><button className="btn" onClick={next} disabled={!v}>К странице клиента</button></div>

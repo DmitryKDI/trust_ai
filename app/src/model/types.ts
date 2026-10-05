@@ -204,6 +204,9 @@ export interface Concept {
   materials: string[];
   references: ConceptReference[];
   rationale: string;
+  /** Настройки процедурной 3D-сцены. Отсутствуют у старых проектов. */
+  scene3d?: import('../scene/types').SceneSettings;
+  materialCatalog?: import('../scene/types').MaterialCatalog;
 }
 
 export interface ReviewDecision {
