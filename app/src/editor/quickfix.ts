@@ -2,6 +2,7 @@
 // помещение по щелчку внутри него на картинке плана («волшебная палочка»). Чистые функции.
 import type { Opening, PlanGeometry, Pt, Room } from '../model/types';
 import { uid } from '../model/defaults';
+import { nearestWall } from './ops';
 import { components, dilate, erode, newBin } from '../recognize/raster';
 import { labelPolygon } from '../quick';
 import { difference, dist, fromRing, intersection, pointInPolygon, polyArea, projectOnSegment, toGeom, union } from '../geometry/poly';
@@ -63,7 +64,17 @@ function nearestOnRoom(r: Room, p: Pt) {
  * тогда это вход). Ширина 800 мм, по линии стены.
  */
 export function doorAt(g: PlanGeometry, p: Pt, width = 800, reach = 600): Opening | null {
+  if (!Number.isFinite(width) || width < 300 || width > 6000) return null;
   const near = g.rooms.map((r) => ({ r, ...nearestOnRoom(r, p) })).filter((x) => x.dist <= reach).sort((a, b) => a.dist - b.dist);
+  const explicit = nearestWall(g, p, reach);
+  if (explicit) {
+    const w = explicit.wall, c = explicit.point, length = dist(w.a, w.b);
+    if (length < 1) return null;
+    const dx = (w.b.x - w.a.x) * width / (2 * length), dy = (w.b.y - w.a.y) * width / (2 * length);
+    return { id: uid('d'), type: 'door', a: { x: c.x - dx, y: c.y - dy }, b: { x: c.x + dx, y: c.y + dy },
+      thickness: w.thickness, hinge: 'a', swing: 1, isEntrance: near.length === 1 && !g.openings.some(o => o.isEntrance),
+      sillHeight: null, source: 'manual', verifiedByManager: true, sourcePage: g.sourcePage };
+  }
   if (!near.length) return null;
   const q1 = near[0].point;
   const q2 = near.find((x) => x.r.id !== near[0].r.id)?.point ?? null;

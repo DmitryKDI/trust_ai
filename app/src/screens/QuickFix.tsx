@@ -7,7 +7,8 @@ import { useStore } from '../state/store';
 import { PlanView, planBounds, polyPath } from '../plan/PlanView';
 import { geometryHash, usesRoomWalls } from '../geometry/plan';
 import { dist, pointInPolygon, type BBox } from '../geometry/poly';
-import { addPlanWall, WALL_KINDS } from '../editor/ops';
+import { addPlanWall, orthogonalPoint, resizeOpening, WALL_KINDS } from '../editor/ops';
+import { SizeInput } from '../editor/SizeInput';
 import { doorAt, mergeRooms, newRoomFromImage, roomFromCorners, splitRoom, type ImageData8 } from '../editor/quickfix';
 import { ROOM_TYPES, roomName } from '../learning/model';
 
@@ -20,7 +21,7 @@ const TOOLS: { id: Tool; label: string; hint: string }[] = [
   { id: 'split', label: 'Разрезать', hint: 'Проведите линию по стене между слипшимися помещениями: два щелчка — начало и конец.' },
   { id: 'merge', label: 'Объединить', hint: 'Щёлкните два куска одного помещения (например, разрезанного надписью).' },
   { id: 'door', label: 'Дверь', hint: 'Щёлкните по стене, где должна быть дверь. Снаружи квартиры — входная.' },
-  { id: 'wall', label: 'Стена', hint: 'Два щелчка — начало и конец оси стены. Задайте тип и толщину; Esc — отменить.' },
+  { id: 'wall', label: 'Стена', hint: 'Два щелчка — начало и конец оси стены. Удерживайте Shift для горизонтали или вертикали; Esc — отменить.' },
 ];
 
 const nameOf = roomName;
@@ -34,6 +35,10 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
   const [sel, setSel] = useState<{ kind: 'room' | 'opening' | 'wall'; id: string } | null>(null);
   const [wallKind, setWallKind] = useState<WallKind>('unknown');
   const [wallT, setWallT] = useState(100);
+  const [doorWidth, setDoorWidth] = useState(800);
+  const [doorLeaves, setDoorLeaves] = useState<1 | 2>(1);
+  const [cursor, setCursor] = useState<Pt | null>(null);
+  const lastPointer = useRef<Pt | null>(null);
   const [draft, setDraft] = useState<Pt[]>([]);
   const [first, setFirst] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -95,10 +100,13 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); }
       else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
       else if (e.key === 'Escape') { setDraft([]); setFirst(null); setSel(null); }
+      if (e.key === 'Shift' && tool === 'wall' && draft.length && lastPointer.current) setCursor(orthogonalPoint(draft[0], lastPointer.current));
     };
+    const up = (e: KeyboardEvent) => { if (e.key === 'Shift') setCursor(lastPointer.current); };
     window.addEventListener('keydown', down);
-    return () => window.removeEventListener('keydown', down);
-  }, [undo, redo]);
+    window.addEventListener('keyup', up);
+    return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); };
+  }, [undo, redo, tool, draft]);
 
   /** Правка с историей (отмена) и сразу утверждённая: варианты пересобираются по кнопке. */
   const fix = (fn: (x: PlanGeometry) => PlanGeometry, note?: string) => {
@@ -114,7 +122,8 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
     if (e.button !== 0 || tool === 'select' || tool === 'merge') return;
     const p = toWorld(e);
     if (tool === 'wall') {
-      const q = { x: Math.round(p.x), y: Math.round(p.y) };
+      const point = e.shiftKey && draft.length ? orthogonalPoint(draft[0], p) : p;
+      const q = { x: Math.round(point.x), y: Math.round(point.y) };
       if (!draft.length) { setDraft([q]); return; }
       const a = draft[0];
       if (dist(a, q) < 50) { setMsg('Выберите конец стены дальше от первой точки.'); return; }
@@ -162,8 +171,9 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
     if (tool === 'door') {
       const near = g.openings.find((o) => Math.hypot((o.a.x + o.b.x) / 2 - p.x, (o.a.y + o.b.y) / 2 - p.y) < 400);
       if (near) { setSel({ kind: 'opening', id: near.id }); setTool('select'); return; }
-      const d = doorAt(g, p);
-      if (!d) { setMsg('Щёлкните ближе к стене помещения.'); return; }
+      const found = doorAt(g, p, doorWidth);
+      if (!found) { setMsg('Щёлкните ближе к стене помещения.'); return; }
+      const d = { ...found, leaves: doorLeaves };
       fix((x) => ({ ...x, openings: [...x.openings, d] }), d.isEntrance ? 'Входная дверь добавлена.' : 'Дверь добавлена.');
       setSel({ kind: 'opening', id: d.id });
     }
@@ -216,12 +226,17 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
         <label className="field">Тип новой стены<select value={wallKind} onChange={e => setWallKind(e.target.value as WallKind)}>{WALL_KINDS.map(([t, label]) => <option key={t} value={t}>{label}</option>)}</select></label>
         <label className="field">Толщина новой стены, мм<input type="number" min="30" value={wallT} onChange={e => setWallT(Math.max(30, Number(e.target.value) || 100))} /></label>
       </div>}
+      {tool === 'door' && <div className="fields">
+        <SizeInput label="Ширина новой двери, мм" value={doorWidth} min={300} max={6000} onCommit={setDoorWidth} />
+        <label className="field">Створки новой двери<select value={doorLeaves} onChange={e => setDoorLeaves(Number(e.target.value) as 1 | 2)}><option value={1}>Одна створка</option><option value={2}>Две равные створки</option></select></label>
+      </div>}
       {g.rooms.length > 0 && (g.walls.length > 0 || tool === 'wall') && <label className="check-inline"><input type="checkbox" checked={usesRoomWalls(g)} onChange={e => fix(x => ({ ...x, wallMode: e.target.checked ? 'rooms' : 'explicit' }), 'Основа стен изменена. Пересоберите варианты.')} />Использовать границы зон как основу стен</label>}
       <div className="canvas-wrap qf-canvas">
         <PlanView ref={svgRef} g={g} mode="editor" viewBox={vb} selectedId={sel?.id} labelScale={1.8}
           underlay={img ? { url: img.url, widthMm: img.widthMm, heightMm: img.heightMm, opacity: 0.45 } : null}
           onElementClick={onElement}
-          svgProps={{ onPointerDown: onDown, style: { cursor: tool === 'select' || tool === 'merge' ? 'pointer' : 'crosshair' } }}>
+          svgProps={{ onPointerDown: onDown, onPointerMove: e => { const p = toWorld(e); lastPointer.current = p; setCursor(e.shiftKey && tool === 'wall' && draft.length ? orthogonalPoint(draft[0], p) : p); }, style: { cursor: tool === 'select' || tool === 'merge' ? 'pointer' : 'crosshair' } }}>
+          {tool === 'wall' && draft.length === 1 && cursor && <path data-wall-preview="true" d={`M${draft[0].x} ${draft[0].y}L${cursor.x} ${cursor.y}`} stroke="#d2691e" strokeWidth={2} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
           {room && <path d={polyPath(room.polygon)} fill="rgba(210,105,30,.12)" stroke="#d2691e" strokeWidth={3} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
           {firstRoom && <path d={polyPath(firstRoom.polygon)} fill="rgba(47,111,143,.15)" stroke="#2f6f8f" strokeWidth={3} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
           {opening && <path d={`M${opening.a.x} ${opening.a.y}L${opening.b.x} ${opening.b.y}`} stroke="#d2691e" strokeWidth={8} strokeLinecap="round" vectorEffect="non-scaling-stroke" pointerEvents="none" />}
@@ -247,7 +262,15 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
       {opening && (
         <div className="qf-actions">
           <div className="small"><b>{opening.type === 'door' ? (opening.isEntrance ? 'Входная дверь' : 'Дверь') : 'Окно'}</b></div>
+          <div className="fields" key={opening.id}>
+            <SizeInput label="Ширина выбранного проёма, мм" value={dist(opening.a, opening.b)} min={300} max={6000} onCommit={w => setOpening((o, all) => all.map(x => x.id === o.id ? resizeOpening(o, w) : x))} />
+            {opening.type === 'door' && <label className="field">Створки выбранной двери<select value={opening.leaves ?? 1} onChange={e => setOpening((o, all) => all.map(x => x.id === o.id ? { ...o, leaves: Number(e.target.value) as 1 | 2, source: 'manual', verifiedByManager: true } : x))}><option value={1}>Одна створка</option><option value={2}>Две равные створки</option></select></label>}
+          </div>
           <div className="actions" style={{ marginTop: 6 }}>
+            {opening.type === 'door' && <>
+              {opening.leaves !== 2 && <button className="btn secondary sm" onClick={() => setOpening((o, all) => all.map(x => x.id === o.id ? { ...o, hinge: o.hinge === 'a' ? 'b' : 'a' } : x))}>Петли у другого откоса</button>}
+              <button className="btn secondary sm" onClick={() => setOpening((o, all) => all.map(x => x.id === o.id ? { ...o, swing: o.swing === 1 ? -1 : 1 } : x))}>Открывание в другую сторону</button>
+            </>}
             {opening.type === 'door' && !opening.isEntrance && (
               <button className="btn secondary sm" onClick={() => setOpening((o, all) => all.map((x) => ({ ...x, isEntrance: x.id === o.id })))}>Сделать входной</button>
             )}

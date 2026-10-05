@@ -51,7 +51,7 @@ export function checkItem(input: LocalCheckInput, it: FurnitureItem, others: Fur
     if (overlapArea(fp, ctx.walls) > EPS_AREA) out.push(issue('error', 'wall-collision', `${nm} пересекает стену`, [it.id]));
     for (const f of ctx.fixed) if (overlapArea(fp, f.poly) > EPS_AREA) out.push(issue('error', 'fixed-collision', `${nm} перекрывает ${fixedName(f.kind)}`, [it.id]));
     for (const d of ctx.doors) {
-      if (overlapArea(fp, d.swing) > EPS_AREA) out.push(issue('error', 'door-swing', `${nm} мешает открыванию двери`, [it.id]));
+      if (d.swings.some(s => overlapArea(fp, s) > EPS_AREA)) out.push(issue('error', 'door-swing', `${nm} мешает открыванию двери`, [it.id]));
       else if (overlapArea(fp, d.rect) > EPS_AREA) out.push(issue('error', 'door-block', `${nm} перекрывает дверной проём`, [it.id]));
     }
     if (cat.tall) for (const w of ctx.windows) if (overlapArea(fp, w.tallZone) > EPS_AREA) out.push(issue('error', 'window-tall', `${nm} — высокая мебель перед окном`, [it.id]));
@@ -80,7 +80,7 @@ export function checkItem(input: LocalCheckInput, it: FurnitureItem, others: Fur
       if (!bboxOverlap(zb, bbox(ofp))) continue;
       if (overlapArea(z, ofp) > EPS_AREA * 10) out.push(issue('error', 'service-blocked', `${nm}: подход перекрыт предметом «${nameOf(o)}»`, [it.id, o.id]));
     }
-    for (const d of ctx.doors) if (overlapArea(z, d.swing) > polyArea(z) * 0.3) out.push(issue('warning', 'service-door', `${nm}: дверь открывается в зону перед фасадом`, [it.id]));
+    for (const d of ctx.doors) if (d.swings.reduce((sum, s) => sum + overlapArea(z, s), 0) > polyArea(z) * 0.3) out.push(issue('warning', 'service-door', `${nm}: дверь открывается в зону перед фасадом`, [it.id]));
   }
 
   // Симметрично: корпус этого предмета не должен занимать зоны обслуживания других.

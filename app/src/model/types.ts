@@ -37,6 +37,8 @@ export interface Opening extends Provenance {
   b: Pt;
   thickness: number;
   hinge: 'a' | 'b';
+  /** Число створок; старые проекты без поля — одна створка. */
+  leaves?: 1 | 2;
   swing: 1 | -1;
   isEntrance: boolean;
   /** Высота подоконника, мм; null — неизвестно. */

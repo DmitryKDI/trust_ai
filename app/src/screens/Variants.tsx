@@ -1,5 +1,7 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState, type PointerEvent as RPE } from 'react';
 import { scaleGeometry } from '../editor/ops';
+import { resizeFurniture } from '../editor/furniture';
+import { SizeInput } from '../editor/SizeInput';
 import type { FurnitureItem, FurnitureType, PlanStyle, Project, RoomType, Rot, Variant } from '../model/types';
 import { uid } from '../model/defaults';
 import { useStore } from '../state/store';
@@ -150,6 +152,7 @@ function VariantDetail({ v }: { v: Variant }) {
         ...p,
         variants: p.variants.map((x) => (x.id === v.id ? { ...x, items: deferred, issues: result.issues, benefits: ex.benefits, compromises: x.compromises.filter((c) => c.startsWith('Не поместилось')).concat(ex.compromises.filter((c) => !c.startsWith('Не поместилось'))), metrics: ex.metrics, editedByManager: true, approved: false } : x)),
         selectedVariantId: p.selectedVariantId === v.id ? null : p.selectedVariantId,
+        review: p.selectedVariantId === v.id ? null : p.review,
       }));
     }, 300);
     return () => window.clearTimeout(t);
@@ -228,7 +231,11 @@ function VariantDetail({ v }: { v: Variant }) {
             <>
               <span className="badge">{CATALOG[sel.type].name} {sel.w}×{sel.d}</span>
               <button className="btn secondary sm" onClick={rotate}>Повернуть (R)</button>
-              {CATALOG[sel.type].wRange && <label className="check-inline">Ширина<input type="number" step={50} style={{ width: 90 }} value={sel.w} onChange={(e) => { const w = Math.max(CATALOG[sel.type].wRange![0], Math.min(CATALOG[sel.type].wRange![1], Number(e.target.value) || sel.w)); patchSel({ w, modules: sel.type === 'kitchen-run' ? kitchenModules(w, true) : sel.modules }); }} /></label>}
+              <div className="fields" key={sel.id}>
+                <SizeInput label="Ширина предмета, мм" value={sel.w} onCommit={w => patchSel(resizeFurniture(sel, w, sel.d))} />
+                <SizeInput label="Глубина предмета, мм" value={sel.d} onCommit={d => patchSel(resizeFurniture(sel, sel.w, d))} />
+              </div>
+              <span className="hint">Enter или выход из поля — применить размер. Ширина и глубина заданы до поворота предмета.</span>
               <button className="btn ghost sm" onClick={remove}>Удалить</button>
             </>
           )}

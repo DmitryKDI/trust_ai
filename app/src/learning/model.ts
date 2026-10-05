@@ -37,6 +37,7 @@ export function simpleRing(poly: Pt[]): boolean {
   return true;
 }
 export function validateGeometry(g: PlanGeometry) {
+  if (g?.openings?.some(o => o.leaves !== undefined && o.leaves !== 1 && o.leaves !== 2)) throw new Error('Допустимы одна или две створки двери.');
   if (!g || !Array.isArray(g.rooms) || !g.rooms.length || g.rooms.length > 200 || !g.calibration || !(g.calibration.mmPerUnit > 0) || !Number.isFinite(g.calibration.mmPerUnit)) throw new Error('Нужны помещения и корректный масштаб.');
   for (const room of g.rooms) {
     if (!Array.isArray(room.polygon) || !simpleRing(room.polygon)) throw new Error('Контур зоны должен иметь положительную площадь и не пересекать сам себя.');

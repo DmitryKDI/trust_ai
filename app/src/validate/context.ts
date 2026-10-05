@@ -1,6 +1,6 @@
 // Предрасчёт статической части плана для быстрых проверок (кэшируется на версию геометрии).
 import type { Opening, PlanGeometry, Pt, Room } from '../model/types';
-import { doorSwingPolygon, geometryHash, interiorGeom, openingRect, usesRoomWalls, wallsGeom } from '../geometry/plan';
+import { doorSwingPolygons, geometryHash, interiorGeom, openingRect, usesRoomWalls, wallsGeom } from '../geometry/plan';
 import { add, bbox, centroid, difference, geomBBox, mul, norm, pointInGeom, segmentRect, toGeom, union, type BBox, type Geom } from '../geometry/poly';
 import type { Rules } from '../rules/rules';
 
@@ -10,7 +10,7 @@ export interface PlanContext {
   walls: Geom;
   interior: Geom;
   rooms: { room: Room; geom: Geom; bbox: BBox }[];
-  doors: { o: Opening; rect: Pt[]; swing: Pt[] }[];
+  doors: { o: Opening; rect: Pt[]; swings: Pt[][] }[];
   windows: { o: Opening; rect: Pt[]; tallZone: Pt[] }[];
   fixed: { id: string; kind: string; poly: Pt[] }[];
   wet: Geom;
@@ -63,7 +63,7 @@ export function planContext(g: PlanGeometry, rules: Rules): PlanContext {
       const geom = toGeom(room.polygon);
       return { room, geom, bbox: bbox(room.polygon) };
     }),
-    doors: g.openings.filter((o) => o.type === 'door').map((o) => ({ o, rect: openingRect(o, 0), swing: doorSwingPolygon(o) })),
+    doors: g.openings.filter((o) => o.type === 'door').map((o) => ({ o, rect: openingRect(o, 0), swings: doorSwingPolygons(o) })),
     windows: g.openings.filter((o) => o.type === 'window').map((o) => ({ o, rect: segmentRect(o.a, o.b, o.thickness), tallZone: windowInnerZone(o, interior, rules.windowTallClearance) })),
     fixed: g.fixed.filter((f) => f.kind !== 'void').map((f) => ({ id: f.id, kind: f.kind, poly: f.polygon })),
     wet: [

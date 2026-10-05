@@ -6,7 +6,8 @@ import { uid } from '../model/defaults';
 import { useStore } from '../state/store';
 import { useSourcePage } from '../state/useSource';
 import { PlanView, planBounds, polyPath } from '../plan/PlanView';
-import { addPlanWall, WALL_KINDS, calibrate, doorFromArc, isWallFill, openingFromClicks, scaleOf, snapPoint, wallFromFill, type SnapKind } from '../editor/ops';
+import { addPlanWall, WALL_KINDS, calibrate, doorFromArc, isWallFill, openingFromClicks, resizeOpening, scaleOf, snapPoint, wallFromFill, type SnapKind } from '../editor/ops';
+import { SizeInput } from '../editor/SizeInput';
 import { SnapIndex } from '../pdf/vectors';
 import { detectRoomPolygon, geometryHash, openingWidth, roomArea } from '../geometry/plan';
 import { add, dist, mul, norm, sub, type BBox } from '../geometry/poly';
@@ -22,7 +23,7 @@ const TOOLS: { id: Tool; label: string; key: string; hint: string }[] = [
   { id: 'pan', label: 'Рука', key: 'H', hint: 'Перетаскивайте план. Колесо — масштаб. Также: пробел или средняя кнопка мыши.' },
   { id: 'calibrate', label: 'Масштаб', key: 'C', hint: 'Отметьте два конца известного размера (например, размерной линии) и введите его в мм.' },
   { id: 'pickWall', label: 'Стена с чертежа', key: 'P', hint: 'Щёлкните по заливке стены на чертеже — стена ляжет точно по ней (подсказка, нужна проверка).' },
-  { id: 'wall', label: 'Стена', key: 'W', hint: 'Клики по оси стены; Shift — без ортогонали; число + Enter — длина; Esc — закончить.' },
+  { id: 'wall', label: 'Стена', key: 'W', hint: 'Клики по оси стены; Shift — строго горизонтально или вертикально; число + Enter — длина; Esc — закончить.' },
   { id: 'pickDoor', label: 'Дверь с чертежа', key: 'G', hint: 'Щёлкните по дуге открывания двери на чертеже.' },
   { id: 'door', label: 'Дверь', key: 'D', hint: 'Отметьте два откоса двери. Петли и сторону открывания задайте справа.' },
   { id: 'window', label: 'Окно', key: 'O', hint: 'Отметьте два откоса окна.' },
@@ -55,6 +56,7 @@ export function MarkupScreen({ next }: { next: () => void }) {
   const [vecSnap, setVecSnap] = useState(true);
   const [wallT, setWallT] = useState(150);
   const [wallKind, setWallKind] = useState<WallKind>('unknown');
+  const [doorLeaves, setDoorLeaves] = useState<1 | 2>(1);
   const [fixedKind, setFixedKind] = useState<FixedKind>('shaft');
   const [lenInput, setLenInput] = useState('');
   const [calMm, setCalMm] = useState('');
@@ -62,6 +64,7 @@ export function MarkupScreen({ next }: { next: () => void }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const pan = useRef<{ x: number; y: number; vb: BBox } | null>(null);
   const spaceDown = useRef(false);
+  const lastPointer = useRef<Pt | null>(null);
 
   const underlay = src.page && showUnderlay ? { url: src.page.imageUrl, widthMm: src.page.width * k, heightMm: src.page.height * k, opacity } : null;
 
@@ -90,7 +93,8 @@ export function MarkupScreen({ next }: { next: () => void }) {
 
   const snap = (raw: Pt, shift: boolean) => {
     const anchor = draft.length ? draft[draft.length - 1] : null;
-    return snapPoint(raw, { g, k, index, radiusMm: 12 * mmPerPx(), anchor, ortho: ortho && !shift && ['wall', 'door', 'window', 'calibrate', 'roomPoly'].includes(tool), vectors: vecSnap });
+    const linear = ['wall', 'door', 'window', 'calibrate', 'roomPoly'].includes(tool);
+    return snapPoint(raw, { g, k, index, radiusMm: 12 * mmPerPx(), anchor, ortho: ortho && linear, forceOrtho: shift && linear, vectors: vecSnap });
   };
 
   const page = g.sourcePage;
@@ -125,7 +129,7 @@ export function MarkupScreen({ next }: { next: () => void }) {
       case 'window':
         if (draft.length === 1) {
           const o = openingFromClicks(g, draft[0], s, tool, page);
-          setG((x) => ({ ...x, openings: [...x.openings, { ...o, verifiedByManager: true }] }));
+          setG((x) => ({ ...x, openings: [...x.openings, { ...o, ...(tool === 'door' ? { leaves: doorLeaves } : {}), verifiedByManager: true }] }));
           setSel({ kind: 'opening', id: o.id });
           setDraft([]);
         } else setDraft([s]);
@@ -202,7 +206,8 @@ export function MarkupScreen({ next }: { next: () => void }) {
       setView({ minX: v.minX - dx, maxX: v.maxX - dx, minY: v.minY - dy, maxY: v.maxY - dy });
       return;
     }
-    setCursor(snap(toWorld(e), e.shiftKey));
+    lastPointer.current = toWorld(e);
+    setCursor(snap(lastPointer.current, e.shiftKey));
   };
   const onUp = () => { pan.current = null; };
 
@@ -238,6 +243,7 @@ export function MarkupScreen({ next }: { next: () => void }) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
       if (typing) return;
+      if (e.key === 'Shift' && lastPointer.current) setCursor(snap(lastPointer.current, true));
       if (e.key === 'Escape') { setDraft([]); setLenInput(''); return; }
       if ((e.key === 'Delete' || e.key === 'Backspace') && sel) { removeSelected(); return; }
       if (tool === 'roomPoly' && e.key === 'Enter' && draft.length >= 3) { finishRoomPoly(draft); return; }
@@ -254,7 +260,7 @@ export function MarkupScreen({ next }: { next: () => void }) {
       const tl = TOOLS.find((x) => x.key.toLowerCase() === e.key.toLowerCase());
       if (tl && !e.ctrlKey && !e.metaKey) { setTool(tl.id); setDraft([]); }
     };
-    const up = (e: KeyboardEvent) => { if (e.key === ' ') spaceDown.current = false; };
+    const up = (e: KeyboardEvent) => { if (e.key === ' ') spaceDown.current = false; if (e.key === 'Shift' && lastPointer.current) setCursor(snap(lastPointer.current, false)); };
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
     return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); };
@@ -400,6 +406,7 @@ export function MarkupScreen({ next }: { next: () => void }) {
           {tool === 'fixed' && (
             <div className="card"><h3>Инженерный элемент</h3><select value={fixedKind} onChange={(e) => setFixedKind(e.target.value as FixedKind)}>{FIXED_KINDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
           )}
+          {tool === 'door' && <div className="card"><h3>Новая дверь</h3><label className="field">Створки новой двери<select value={doorLeaves} onChange={e => setDoorLeaves(Number(e.target.value) as 1 | 2)}><option value={1}>Одна створка</option><option value={2}>Две равные створки</option></select></label><p className="hint">Ширина — расстояние между двумя отмеченными откосами. После добавления её можно задать числом.</p></div>}
           {sel && <Properties sel={sel} onDelete={removeSelected} />}
           <div className="card">
             <h3>Проверка разметки</h3>
@@ -457,21 +464,17 @@ function Properties({ sel, onDelete }: { sel: NonNullable<Sel>; onDelete: () => 
   }
   if (sel.kind === 'opening') {
     const o = item as Opening;
-    const setWidth = (wmm: number) => {
-      const d = norm(sub(o.b, o.a));
-      const b = add(o.a, mul(d, wmm));
-      patch({ b: { x: Math.round(b.x), y: Math.round(b.y) } });
-    };
     return (
-      <div className="card"><h3>{o.type === 'door' ? 'Дверь' : 'Окно'}</h3>{src(o)}
+      <div className="card" key={o.id}><h3>{o.type === 'door' ? 'Дверь' : 'Окно'}</h3>{src(o)}
         <div className="fields">
-          <label className="field">Ширина, мм<input type="number" value={Math.round(openingWidth(o))} onChange={(e) => setWidth(Math.max(300, Number(e.target.value) || 800))} /></label>
+          <SizeInput label="Ширина проёма, мм" value={openingWidth(o)} min={300} max={6000} onCommit={w => patch(resizeOpening(o, w) as unknown as Record<string, unknown>)} />
+          {o.type === 'door' && <label className="field">Створки двери<select value={o.leaves ?? 1} onChange={e => patch({ leaves: Number(e.target.value), source: 'manual', verifiedByManager: true })}><option value={1}>Одна створка</option><option value={2}>Две равные створки</option></select></label>}
           <label className="field">Толщина стены<input type="number" value={Math.round(o.thickness)} onChange={(e) => patch({ thickness: Math.max(30, Number(e.target.value) || o.thickness) })} /></label>
           {o.type === 'window' && <label className="field">Подоконник, мм<input type="number" value={o.sillHeight ?? ''} placeholder="неизвестно" onChange={(e) => patch({ sillHeight: e.target.value === '' ? null : Number(e.target.value) })} /></label>}
         </div>
         {o.type === 'door' && (
           <div className="actions" style={{ marginTop: 8 }}>
-            <button className="btn secondary sm" onClick={() => patch({ hinge: o.hinge === 'a' ? 'b' : 'a' })}>Петли у другого откоса</button>
+            {o.leaves !== 2 && <button className="btn secondary sm" onClick={() => patch({ hinge: o.hinge === 'a' ? 'b' : 'a' })}>Петли у другого откоса</button>}
             <button className="btn secondary sm" onClick={() => patch({ swing: -o.swing })}>Открывание в другую сторону</button>
             <label className="check-inline"><input type="checkbox" checked={o.isEntrance} onChange={(e) => editGeometry((x) => ({ ...x, openings: x.openings.map((i) => ({ ...i, isEntrance: i.id === o.id ? e.target.checked : e.target.checked ? false : i.isEntrance })) }))} />Входная дверь</label>
           </div>

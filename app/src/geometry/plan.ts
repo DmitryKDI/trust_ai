@@ -46,6 +46,16 @@ export function doorSwingPolygon(o: Opening, segments = 12): Pt[] {
   return pts;
 }
 
+/** Две равные створки открываются с обоих откосов в одну сторону. */
+export function doorSwingPolygons(o: Opening, segments = 12): Pt[][] {
+  if (o.leaves !== 2) return [doorSwingPolygon(o, segments)];
+  const mid = mul(add(o.a, o.b), 0.5);
+  return [
+    doorSwingPolygon({ ...o, b: mid, hinge: 'a', leaves: 1 }, segments),
+    doorSwingPolygon({ ...o, a: mid, hinge: 'b', leaves: 1 }, segments),
+  ];
+}
+
 /** Полигоны стен с прорезанными проёмами (MultiPolygon). */
 export function wallsGeom(g: PlanGeometry, cutOpenings = true): Geom {
   const walls = union(...g.walls.map((w) => toGeom(wallPolygon(w))));
@@ -110,7 +120,7 @@ export function geometryHash(g: PlanGeometry): string {
   const parts = [
     ...(g.wallMode ? [`WM${g.wallMode}`] : []),
     ...g.walls.map((w) => `W${p(w.a)}|${p(w.b)}|${r(w.thickness)}|${w.kind}`),
-    ...g.openings.map((o) => `O${o.type}${p(o.a)}|${p(o.b)}|${o.hinge}${o.swing}${o.isEntrance ? 'E' : ''}`),
+    ...g.openings.map((o) => `O${o.type}${p(o.a)}|${p(o.b)}|${o.hinge}${o.swing}${o.isEntrance ? 'E' : ''}${o.leaves === 2 ? '|L2' : ''}`),
     ...g.fixed.map((f) => `F${f.kind}${f.polygon.map(p).join(';')}`),
     ...g.wetZones.map((z) => `Z${z.polygon.map(p).join(';')}`),
     ...g.rooms.map((m) => `R${m.type}${m.polygon.map(p).join(';')}`),

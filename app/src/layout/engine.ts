@@ -83,7 +83,7 @@ class Static {
       if (f.kind !== 'radiator') this.occ.paint(this.svc, f.poly, 1);
     }
     for (const d of ctx.doors) {
-      this.occ.paint(this.base, d.swing, 1);
+      for (const swing of d.swings) this.occ.paint(this.base, swing, 1);
       this.occ.paint(this.base, d.rect, 1);
     }
     this.win = this.occ.layer();

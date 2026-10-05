@@ -131,9 +131,22 @@ export type SnapKind = 'geometry' | 'vector-point' | 'vector-line' | 'ortho' | '
 
 export interface SnapResult { p: Pt; kind: SnapKind }
 
+export function orthogonalPoint(anchor: Pt, raw: Pt): Pt {
+  return Math.abs(raw.x - anchor.x) >= Math.abs(raw.y - anchor.y)
+    ? { x: raw.x, y: anchor.y } : { x: anchor.x, y: raw.y };
+}
+
+/** Изменяет ширину проёма вокруг его центра, сохраняя ось и сторону открывания. */
+export function resizeOpening(o: Opening, width: number): Opening {
+  if (!Number.isFinite(width) || width < 300 || width > 6000 || dist(o.a, o.b) < 1) throw new Error('Ширина проёма должна быть от 300 до 6000 мм.');
+  const mid = mul(add(o.a, o.b), 0.5), half = mul(norm(sub(o.b, o.a)), width / 2);
+  return { ...o, a: sub(mid, half), b: add(mid, half), source: 'manual', verifiedByManager: true };
+}
+
 /** Привязка курсора: точки разметки → точки чертежа → ортогональ → линии чертежа. */
-export function snapPoint(raw: Pt, opts: { g: PlanGeometry; k: number; index: SnapIndex | null; radiusMm: number; anchor: Pt | null; ortho: boolean; vectors: boolean }): SnapResult {
+export function snapPoint(raw: Pt, opts: { g: PlanGeometry; k: number; index: SnapIndex | null; radiusMm: number; anchor: Pt | null; ortho: boolean; vectors: boolean; forceOrtho?: boolean }): SnapResult {
   const { g, k, index, radiusMm, anchor, ortho } = opts;
+  if (anchor && opts.forceOrtho) return { p: orthogonalPoint(anchor, raw), kind: 'ortho' };
   const geomPts: Pt[] = [
     ...g.walls.flatMap((w) => [w.a, w.b, ...wallPolygon(w)]),
     ...g.openings.flatMap((o) => [o.a, o.b]),

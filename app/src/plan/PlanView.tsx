@@ -1,7 +1,7 @@
 // SVG-чертёж плана в мм: стены, проёмы, помещения, инженерные элементы и мебель.
 import { forwardRef, useId, useMemo, type PointerEvent as RPE, type ReactNode } from 'react';
 import type { FurnitureItem, Issue, PlanGeometry, PlanStyle, Pt } from '../model/types';
-import { doorSwingPolygon, roomArea, roomWallBand, usesRoomWalls, wallPolygon, wallsGeom } from '../geometry/plan';
+import { doorSwingPolygons, roomArea, roomWallBand, usesRoomWalls, wallPolygon, wallsGeom } from '../geometry/plan';
 import { bbox, labelPoint, union, type BBox, type Geom } from '../geometry/poly';
 import { FurnitureSymbol, type FurniturePalette } from '../furniture/Symbol';
 
@@ -130,14 +130,14 @@ export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanVi
             </g>
           );
         }
-        const sw = doorSwingPolygon(o);
-        const hinge = sw[0], open = sw[sw.length - 1];
-        const arc = sw.slice(1);
+        const swings = doorSwingPolygons(o);
         return (
-          <g key={o.id} onClick={() => p.onElementClick?.('opening', o.id)}>
+          <g key={o.id} data-opening-id={o.id} data-door-leaves={o.leaves ?? 1} onClick={() => p.onElementClick?.('opening', o.id)}>
             <path d={polyPath(segmentRectLocal(o.a, o.b, o.thickness))} fill={editor ? 'rgba(255,255,255,.9)' : '#ffffff'} stroke={sel ? '#d2691e' : 'none'} strokeWidth={2.5} vectorEffect="non-scaling-stroke" />
-            <path d={'M' + arc.map((q) => `${q.x} ${q.y}`).join('L')} fill="none" stroke="#98a4a7" strokeWidth={1} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />
-            <path d={`M${hinge.x} ${hinge.y}L${open.x} ${open.y}`} stroke={o.isEntrance ? '#6b4a3a' : '#6f7b7e'} strokeWidth={o.isEntrance ? 2.2 : 1.5} vectorEffect="non-scaling-stroke" />
+            {swings.map((sw, i) => <g key={i} data-door-leaf={i + 1}>
+              <path d={'M' + sw.slice(1).map(q => `${q.x} ${q.y}`).join('L')} fill="none" stroke="#98a4a7" strokeWidth={1} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />
+              <path d={`M${sw[0].x} ${sw[0].y}L${sw[sw.length - 1].x} ${sw[sw.length - 1].y}`} stroke={o.isEntrance ? '#6b4a3a' : '#6f7b7e'} strokeWidth={o.isEntrance ? 2.2 : 1.5} vectorEffect="non-scaling-stroke" />
+            </g>)}
           </g>
         );
       })}
@@ -157,7 +157,7 @@ export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanVi
       {items.map((it) => {
         const err = errIds.has(it.id), warn = warnIds.has(it.id), sel = it.id === selectedId;
         return (
-          <g key={it.id} transform={`translate(${it.x} ${it.y}) rotate(${it.rot})`} className={p.onItemPointerDown ? 'item-drag' : undefined}
+          <g key={it.id} data-item-id={it.id} data-item-type={it.type} transform={`translate(${it.x} ${it.y}) rotate(${it.rot})`} className={p.onItemPointerDown ? 'item-drag' : undefined}
             onPointerDown={p.onItemPointerDown ? (e) => p.onItemPointerDown!(e, it) : undefined}>
             <FurnitureSymbol it={it} pal={pal.furniture} />
             {(err || warn || sel) && mode !== 'client' && (
