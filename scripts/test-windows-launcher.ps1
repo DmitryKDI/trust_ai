@@ -13,12 +13,12 @@ function Invoke-Batch([string]$BatchFile, [string]$Mode) {
     return $process.ExitCode
 }
 
-$testRoot = Join-Path $env:TEMP ('Planner проверка [' + [guid]::NewGuid().ToString() + ']')
+$testRoot = Join-Path $env:TEMP ('Planner-launcher-' + [guid]::NewGuid().ToString())
 $server = $null
 $originalPath = $env:PATH
 try {
     # Always exercise installation even if the runner already has Node.js.
-    $toolsDir = Join-Path $testRoot 'runtime'
+    $toolsDir = Join-Path $testRoot 'runtime [проверка]'
     $runtime = Install-PortableNode
     Assert (Test-NodeTools $runtime) 'Downloaded Node.js/npm must run.'
     $empty = Join-Path $testRoot 'empty'
@@ -57,6 +57,9 @@ try {
         } catch { Start-Sleep -Seconds 1 }
     }
     Assert $responded 'The actual application did not start.'
+    & taskkill.exe /PID $server.Id /T /F | Out-Null
+    $server.WaitForExit()
+    $server = $null
     # The interactive entry point must survive a missing script, including paths
     # containing spaces, Cyrillic, brackets, ampersands and parentheses.
     $brokenRoot = Join-Path $testRoot 'План & тест (копия) [1]'
