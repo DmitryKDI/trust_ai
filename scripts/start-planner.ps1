@@ -12,7 +12,6 @@ $ProgressPreference = 'SilentlyContinue'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $appDir = Join-Path $repoRoot 'app'
 $toolsDir = Join-Path $env:LOCALAPPDATA 'TrustRemontPlanner\runtime'
-$transcriptStarted = $false
 
 function Invoke-NodeTool([string]$Executable, [string[]]$ToolArguments, [switch]$Capture) {
     # Invoke executable paths literally: Windows PowerShell 5.1 treats brackets
@@ -117,10 +116,6 @@ try {
         }
     }
     Set-Location -LiteralPath $appDir
-    try {
-        Start-Transcript -Path (Join-Path $appDir 'planner-start.log') -Force | Out-Null
-        $transcriptStarted = $true
-    } catch { Write-Host 'Не удалось записать журнал; сообщения будут показаны в этом окне.' }
 
     Write-Host 'Проверяю Node.js и npm...'
     $nodeDir = $null
@@ -182,10 +177,9 @@ try {
 } catch {
     Write-Host ''
     Write-Host ('ОШИБКА: ' + $_.Exception.Message) -ForegroundColor Red
-    Write-Host 'Если журнал создан, он находится в app\planner-start.log.'
+    Write-Host $_.ScriptStackTrace
+    Write-Host 'Журнал запуска через батник: %TEMP%\TrustRemontPlanner-start.log.'
     exit 1
-} finally {
-    if ($transcriptStarted) { Stop-Transcript | Out-Null }
 }
 }
 
