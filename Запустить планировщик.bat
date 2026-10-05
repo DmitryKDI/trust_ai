@@ -1,9 +1,10 @@
 @echo off
 setlocal DisableDelayedExpansion
+chcp 65001 >nul
 rem Keep CMD open even if the launcher fails before PowerShell starts.
 rem ASCII source avoids depending on the current Windows code page.
 if /i "%~1"=="--console" goto launch
-"%ComSpec%" /d /k ""%~f0" --console"
+"%ComSpec%" /d /k call "%~f0" --console
 exit /b %ERRORLEVEL%
 
 :launch
