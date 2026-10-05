@@ -6,6 +6,13 @@ function Assert([bool]$Condition, [string]$Message) {
     if (!$Condition) { throw $Message }
 }
 
+function Invoke-Batch([string]$BatchFile, [string]$Mode) {
+    # Start-Process passes a raw command line; the PS 5.1 call operator would
+    # re-escape CMD's nested quotes and break a BAT filename containing spaces.
+    $process = Start-Process -FilePath $env:ComSpec -ArgumentList ('/d /s /c ""' + $BatchFile + '" --console ' + $Mode + '"') -NoNewWindow -Wait -PassThru
+    return $process.ExitCode
+}
+
 $testRoot = Join-Path $env:TEMP ('Planner проверка [' + [guid]::NewGuid().ToString() + ']')
 $server = $null
 $originalPath = $env:PATH
@@ -22,26 +29,22 @@ try {
 
     $env:PATH = $runtime + ';' + $originalPath
     $batch = Join-Path (Split-Path $PSScriptRoot -Parent) 'Запустить планировщик.bat'
-    & $env:ComSpec /d /s /c ('""' + $batch + '" --console --check"')
-    Assert ($LASTEXITCODE -eq 0) 'First dependency setup failed.'
+    Assert ((Invoke-Batch $batch '--check') -eq 0) 'First dependency setup failed.'
     $app = Join-Path (Split-Path $PSScriptRoot -Parent) 'app'
     $stamp = Join-Path $app 'node_modules\.planner-dependencies'
     Assert (Test-Path -LiteralPath $stamp) 'Dependency stamp missing.'
     $stampTime = (Get-Item -LiteralPath $stamp).LastWriteTimeUtc
-    & $env:ComSpec /d /s /c ('""' + $batch + '" --console --check"')
-    Assert ($LASTEXITCODE -eq 0) 'Repeat setup failed.'
+    Assert ((Invoke-Batch $batch '--check') -eq 0) 'Repeat setup failed.'
     Assert ((Get-Item -LiteralPath $stamp).LastWriteTimeUtc -eq $stampTime) 'Repeat setup unnecessarily reinstalls packages.'
 
     Remove-Item -LiteralPath (Join-Path $app 'node_modules\vite') -Recurse -Force
-    & $env:ComSpec /d /s /c ('""' + $batch + '" --console --check"')
-    Assert ($LASTEXITCODE -eq 0) 'Repairing incomplete dependencies failed.'
+    Assert ((Invoke-Batch $batch '--check') -eq 0) 'Repairing incomplete dependencies failed.'
     Assert (Test-Path -LiteralPath (Join-Path $app 'node_modules\vite\package.json')) 'Vite was not restored.'
 
     $port = New-Object Net.Sockets.TcpListener ([Net.IPAddress]::Loopback), 5190
     $port.Start()
     try {
-        & $env:ComSpec /d /s /c ('""' + $batch + '" --console --server-test"')
-        Assert ($LASTEXITCODE -ne 0) 'Occupied port must produce an error.'
+        Assert ((Invoke-Batch $batch '--server-test') -ne 0) 'Occupied port must produce an error.'
     } finally { $port.Stop() }
 
     $server = Start-Process -FilePath $env:ComSpec -ArgumentList ('/d /s /c ""' + $batch + '" --console --server-test"') -PassThru
@@ -78,8 +81,7 @@ try {
     New-Item -ItemType Directory -Path $brokenScripts -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'launch-planner.ps1') -Destination $brokenScripts
     Set-Content -LiteralPath (Join-Path $brokenScripts 'start-planner.ps1') -Value 'function Broken {' -Encoding UTF8
-    & $env:ComSpec /d /s /c ('""' + $brokenBatch + '" --console --check"')
-    Assert ($LASTEXITCODE -ne 0) 'Broken PowerShell script must return a failure.'
+    Assert ((Invoke-Batch $brokenBatch '--check') -ne 0) 'Broken PowerShell script must return a failure.'
     $log = Join-Path ([IO.Path]::GetTempPath()) 'TrustRemontPlanner-start.log'
     Assert ((Get-Content -LiteralPath $log -Raw) -match 'start-planner.ps1') 'Parse error was not logged.'
     Write-Host 'Windows BAT launcher smoke checks passed.'
