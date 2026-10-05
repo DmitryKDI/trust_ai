@@ -28,7 +28,8 @@ test('Shift, ширина двери, две створки и размеры в
   const a = await world(7000, 4500), b = await world(8500, 4650);
   await page.mouse.click(a.x, a.y);
   await page.keyboard.down('Shift'); await page.mouse.move(b.x, b.y);
-  await expect(canvas.locator('[data-wall-preview]')).toBeVisible();
+  await expect(canvas.locator('[data-wall-preview]')).toBeAttached();
+  await expect(canvas.locator('[data-wall-preview]')).toHaveAttribute('d', /M7000 4500L[\d.]+ 4500/);
   await page.mouse.click(b.x, b.y); await page.keyboard.up('Shift');
   await expect.poll(async () => (await saved(page)).geometry.walls.length).toBe(7);
   const w = (await saved(page)).geometry.walls[6]; expect(w.a.y).toBe(w.b.y);
