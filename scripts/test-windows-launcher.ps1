@@ -76,6 +76,8 @@ try {
         throw 'Interactive BAT did not return after closing CMD.'
     }
     $output = Get-Content -LiteralPath $stdoutFile -Raw
+    Write-Host $output
+    Write-Host (Get-Content -LiteralPath $stderrFile -Raw)
     Assert ($output -match 'Launcher files are missing') 'Missing launcher did not produce a readable error.'
     Assert ($output -match 'This window stays open') 'Interactive error path did not reach the persistent console.'
 
