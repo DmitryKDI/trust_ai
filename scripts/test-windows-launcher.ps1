@@ -22,22 +22,18 @@ try {
 
     $env:PATH = $runtime + ';' + $originalPath
     $batch = Join-Path (Split-Path $PSScriptRoot -Parent) 'Запустить планировщик.bat'
-    function Invoke-BatchSetup {
-        & $env:ComSpec /d /s /c ('""' + $batch + '" --console --check"')
-    }
-    $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    Invoke-BatchSetup
+    & $env:ComSpec /d /s /c ('""' + $batch + '" --console --check"')
     Assert ($LASTEXITCODE -eq 0) 'First dependency setup failed.'
     $app = Join-Path (Split-Path $PSScriptRoot -Parent) 'app'
     $stamp = Join-Path $app 'node_modules\.planner-dependencies'
     Assert (Test-Path -LiteralPath $stamp) 'Dependency stamp missing.'
     $stampTime = (Get-Item -LiteralPath $stamp).LastWriteTimeUtc
-    Invoke-BatchSetup
+    & $env:ComSpec /d /s /c ('""' + $batch + '" --console --check"')
     Assert ($LASTEXITCODE -eq 0) 'Repeat setup failed.'
     Assert ((Get-Item -LiteralPath $stamp).LastWriteTimeUtc -eq $stampTime) 'Repeat setup unnecessarily reinstalls packages.'
 
     Remove-Item -LiteralPath (Join-Path $app 'node_modules\vite') -Recurse -Force
-    Invoke-BatchSetup
+    & $env:ComSpec /d /s /c ('""' + $batch + '" --console --check"')
     Assert ($LASTEXITCODE -eq 0) 'Repairing incomplete dependencies failed.'
     Assert (Test-Path -LiteralPath (Join-Path $app 'node_modules\vite\package.json')) 'Vite was not restored.'
 
