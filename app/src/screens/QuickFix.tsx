@@ -7,21 +7,22 @@ import { useStore } from '../state/store';
 import { PlanView, planBounds, polyPath } from '../plan/PlanView';
 import { geometryHash, usesRoomWalls } from '../geometry/plan';
 import { dist, pointInPolygon, type BBox } from '../geometry/poly';
-import { addPlanWall, orthogonalPoint, resizeOpening, WALL_KINDS } from '../editor/ops';
+import { addPlanWallChain, orthogonalPoint, resizeOpening, WALL_KINDS } from '../editor/ops';
+import { ownsShortcut } from '../editor/keyboard';
 import { SizeInput } from '../editor/SizeInput';
 import { doorAt, mergeRooms, newRoomFromImage, roomFromCorners, splitRoom, type ImageData8 } from '../editor/quickfix';
 import { ROOM_TYPES, roomName } from '../learning/model';
 
 type Tool = 'select' | 'add' | 'rect' | 'split' | 'merge' | 'door' | 'wall';
 
-const TOOLS: { id: Tool; label: string; hint: string }[] = [
-  { id: 'select', label: 'Выбрать', hint: 'Щёлкните помещение или дверь — внизу появятся действия. Колесо мыши — масштаб.' },
-  { id: 'add', label: 'Добавить комнату', hint: 'Щёлкните по свободному полу внутри пропущенного помещения (не по сантехнике и цифрам) — контур найдётся сам.' },
-  { id: 'rect', label: 'Комната по углам', hint: 'Два щелчка — противоположные углы помещения (удобно для санузлов с сантехникой).' },
-  { id: 'split', label: 'Разрезать', hint: 'Проведите линию по стене между слипшимися помещениями: два щелчка — начало и конец.' },
-  { id: 'merge', label: 'Объединить', hint: 'Щёлкните два куска одного помещения (например, разрезанного надписью).' },
-  { id: 'door', label: 'Дверь', hint: 'Щёлкните по стене, где должна быть дверь. Снаружи квартиры — входная.' },
-  { id: 'wall', label: 'Стена', hint: 'Два щелчка — начало и конец оси стены. Удерживайте Shift для горизонтали или вертикали; Esc — отменить.' },
+const TOOLS: { id: Tool; label: string; key: string; hint: string }[] = [
+  { id: 'select', key: 'V', label: 'Выбрать', hint: 'Щёлкните объект — внизу появятся действия. Delete — удалить; колесо мыши — масштаб.' },
+  { id: 'add', key: 'A', label: 'Добавить комнату', hint: 'Щёлкните по свободному полу внутри пропущенного помещения (не по сантехнике и цифрам) — контур найдётся сам.' },
+  { id: 'rect', key: 'N', label: 'Комната по углам', hint: 'Два щелчка — противоположные углы помещения (удобно для санузлов с сантехникой).' },
+  { id: 'split', key: 'X', label: 'Разрезать', hint: 'Проведите линию по стене между слипшимися помещениями: два щелчка — начало и конец.' },
+  { id: 'merge', key: 'M', label: 'Объединить', hint: 'Щёлкните два куска одного помещения (например, разрезанного надписью).' },
+  { id: 'door', key: 'D', label: 'Дверь', hint: 'Щёлкните по стене, где должна быть дверь. Снаружи квартиры — входная.' },
+  { id: 'wall', key: 'W', label: 'Стена', hint: 'Щёлкайте углы полилинии; Enter — создать стены; Shift — горизонталь или вертикаль; Esc — отменить.' },
 ];
 
 const nameOf = roomName;
@@ -44,6 +45,7 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
   const [msg, setMsg] = useState<string | null>(null);
   const [changed, setChanged] = useState(false);
   const [view, setView] = useState<BBox | null>(null);
+  const rootRef = useRef<HTMLDetailsElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const pixels = useRef<{ data: ImageData8; mmPerPx: number } | null>(null);
 
@@ -95,18 +97,27 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
   // Ctrl+Z / Ctrl+Y и Esc (сбросить начатое действие).
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement;
-      if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT') return;
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); }
+      if (!ownsShortcut(rootRef.current, e)) return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (!e.shiftKey && draft.length) setDraft(d => d.slice(0, -1));
+        else if (e.shiftKey) redo(); else undo();
+      }
       else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
-      else if (e.key === 'Escape') { setDraft([]); setFirst(null); setSel(null); }
-      if (e.key === 'Shift' && tool === 'wall' && draft.length && lastPointer.current) setCursor(orthogonalPoint(draft[0], lastPointer.current));
+      else if (e.key === 'Escape') { e.preventDefault(); setDraft([]); setFirst(null); setSel(null); }
+      else if (e.key === 'Enter' && tool === 'wall') { e.preventDefault(); finishWalls(); }
+      else if ((e.key === 'Delete' || e.key === 'Backspace') && sel) { e.preventDefault(); removeSelected(); }
+      else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+        const next = TOOLS.find(t => t.key.toLowerCase() === e.key.toLowerCase());
+        if (next && !(next.id === 'add' && !img)) { e.preventDefault(); setTool(next.id); setDraft([]); setSel(null); setFirst(null); setMsg(null); }
+      }
+      if (e.key === 'Shift' && tool === 'wall' && draft.length && lastPointer.current) setCursor(orthogonalPoint(draft[draft.length - 1], lastPointer.current));
     };
     const up = (e: KeyboardEvent) => { if (e.key === 'Shift') setCursor(lastPointer.current); };
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
     return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); };
-  }, [undo, redo, tool, draft]);
+  });
 
   /** Правка с историей (отмена) и сразу утверждённая: варианты пересобираются по кнопке. */
   const fix = (fn: (x: PlanGeometry) => PlanGeometry, note?: string) => {
@@ -116,20 +127,30 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
     setMsg(note ?? null);
   };
 
+  const finishWalls = () => {
+    if (draft.length < 2) return;
+    fix(x => addPlanWallChain(x, draft, { thickness: wallT, kind: wallKind }), 'Стены добавлены. Пересоберите мебель. Ctrl+Z — отменить всю полилинию.');
+    setDraft([]); setSel(null); setCursor(null); setTool('select');
+  };
+
+  const removeSelected = () => {
+    if (!sel) return;
+    const key = ({ wall: 'walls', opening: 'openings', room: 'rooms' } as const)[sel.kind];
+    fix(x => ({ ...x, [key]: x[key].filter(i => i.id !== sel.id) }), 'Объект удалён. Пересоберите варианты.');
+    setSel(null);
+  };
+
   const roomAt = (p: Pt) => g.rooms.find((r) => pointInPolygon(p, r.polygon)) ?? null;
 
   const onDown = (e: RPE<SVGSVGElement>) => {
+    svgRef.current?.focus({ preventScroll: true });
     if (e.button !== 0 || tool === 'select' || tool === 'merge') return;
     const p = toWorld(e);
     if (tool === 'wall') {
-      const point = e.shiftKey && draft.length ? orthogonalPoint(draft[0], p) : p;
+      const point = e.shiftKey && draft.length ? orthogonalPoint(draft[draft.length - 1], p) : p;
       const q = { x: Math.round(point.x), y: Math.round(point.y) };
-      if (!draft.length) { setDraft([q]); return; }
-      const a = draft[0];
-      if (dist(a, q) < 50) { setMsg('Выберите конец стены дальше от первой точки.'); return; }
-      const wall: Wall = { id: uid('w'), a, b: q, thickness: wallT, kind: wallKind, source: 'manual', verifiedByManager: true, sourcePage: g.sourcePage };
-      fix(x => addPlanWall(x, wall), 'Стена добавлена. Пересоберите мебель и сохраните проверенный план для обучения.');
-      setDraft([]); setSel({ kind: 'wall', id: wall.id }); setTool('select');
+      if (draft.length && dist(draft[draft.length - 1], q) < 50) { setMsg('Выберите следующую точку дальше от предыдущей.'); return; }
+      setDraft(d => [...d, q]); setMsg(null);
       return;
     }
     if (tool === 'add') {
@@ -209,13 +230,13 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
   const firstRoom = first ? g.rooms.find((r) => r.id === first) : null;
 
   return (
-    <details className="card" style={{ marginTop: 14 }} open>
+    <details ref={rootRef} className="card" style={{ marginTop: 14 }} open>
       <summary style={{ margin: 0 }}>Быстрая правка плана</summary>
-      <p className="muted small">Проверьте план поверх оригинала. Ошибки распознавания правятся щелчком; Ctrl+Z — отменить.</p>
+      <p className="muted small">Проверьте план поверх оригинала. Ошибки распознавания правятся щелчком; Enter — завершить стены; Esc — отменить рисование; Delete — удалить выбранный объект; Ctrl+Z — отменить.</p>
       <div className="toolbar" role="toolbar" aria-label="Быстрая правка">
         {TOOLS.map((t) => (
-          <button key={t.id} className={`tool ${tool === t.id ? 'on' : ''}`} disabled={t.id === 'add' && !img}
-            onClick={() => { setTool(t.id); setDraft([]); setFirst(null); setMsg(null); }}>{t.label}</button>
+          <button key={t.id} className={`tool ${tool === t.id ? 'on' : ''}`} title={`${t.hint} (${t.key})`} disabled={t.id === 'add' && !img}
+            onClick={() => { setTool(t.id); setDraft([]); setSel(null); setFirst(null); setMsg(null); }}>{t.label}</button>
         ))}
         <button className="tool" onClick={undo} disabled={!canUndo}>Отменить</button>
         <button className="tool" onClick={redo} disabled={!canRedo}>Повторить</button>
@@ -225,6 +246,7 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
       {tool === 'wall' && <div className="fields">
         <label className="field">Тип новой стены<select value={wallKind} onChange={e => setWallKind(e.target.value as WallKind)}>{WALL_KINDS.map(([t, label]) => <option key={t} value={t}>{label}</option>)}</select></label>
         <label className="field">Толщина новой стены, мм<input type="number" min="30" value={wallT} onChange={e => setWallT(Math.max(30, Number(e.target.value) || 100))} /></label>
+        <div className="actions"><button className="btn sm" disabled={draft.length < 2} onClick={finishWalls}>Завершить стены (Enter)</button><button className="btn ghost sm" disabled={!draft.length} onClick={() => setDraft([])}>Отменить рисование (Esc)</button></div>
       </div>}
       {tool === 'door' && <div className="fields">
         <SizeInput label="Ширина новой двери, мм" value={doorWidth} min={300} max={6000} onCommit={setDoorWidth} />
@@ -235,8 +257,9 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
         <PlanView ref={svgRef} g={g} mode="editor" viewBox={vb} selectedId={sel?.id} labelScale={1.8}
           underlay={img ? { url: img.url, widthMm: img.widthMm, heightMm: img.heightMm, opacity: 0.45 } : null}
           onElementClick={onElement}
-          svgProps={{ onPointerDown: onDown, onPointerMove: e => { const p = toWorld(e); lastPointer.current = p; setCursor(e.shiftKey && tool === 'wall' && draft.length ? orthogonalPoint(draft[0], p) : p); }, style: { cursor: tool === 'select' || tool === 'merge' ? 'pointer' : 'crosshair' } }}>
-          {tool === 'wall' && draft.length === 1 && cursor && <path data-wall-preview="true" d={`M${draft[0].x} ${draft[0].y}L${cursor.x} ${cursor.y}`} stroke="#d2691e" strokeWidth={2} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
+          svgProps={{ tabIndex: 0, onPointerDown: onDown, onPointerMove: e => { const p = toWorld(e); lastPointer.current = p; setCursor(e.shiftKey && tool === 'wall' && draft.length ? orthogonalPoint(draft[draft.length - 1], p) : p); }, style: { cursor: tool === 'select' || tool === 'merge' ? 'pointer' : 'crosshair' } }}>
+          {tool === 'wall' && draft.length > 1 && <path data-wall-draft="true" d={'M' + draft.map(q => `${q.x} ${q.y}`).join('L')} fill="none" stroke="#d2691e" strokeWidth={2} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
+          {tool === 'wall' && draft.length > 0 && cursor && <path data-wall-preview="true" d={`M${draft[draft.length - 1].x} ${draft[draft.length - 1].y}L${cursor.x} ${cursor.y}`} stroke="#d2691e" strokeWidth={2} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
           {room && <path d={polyPath(room.polygon)} fill="rgba(210,105,30,.12)" stroke="#d2691e" strokeWidth={3} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
           {firstRoom && <path d={polyPath(firstRoom.polygon)} fill="rgba(47,111,143,.15)" stroke="#2f6f8f" strokeWidth={3} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
           {opening && <path d={`M${opening.a.x} ${opening.a.y}L${opening.b.x} ${opening.b.y}`} stroke="#d2691e" strokeWidth={8} strokeLinecap="round" vectorEffect="non-scaling-stroke" pointerEvents="none" />}

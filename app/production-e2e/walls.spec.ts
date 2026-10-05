@@ -30,8 +30,8 @@ test('manual bathroom partition stays visible with furniture and is remembered o
   await page.getByLabel('Тип новой стены').selectOption('partition');
   await page.getByLabel('Толщина новой стены, мм').fill('150');
   // Existing divider between the two sanitary rooms, drawn from the public source image.
-  await clickImage(page, 0.78, 0.225); await clickImage(page, 0.93, 0.225);
-  await expect(page.locator('.canvas-hint')).toContainText('Стена добавлена');
+  await clickImage(page, 0.78, 0.225); await clickImage(page, 0.93, 0.225); await page.keyboard.press('Enter');
+  await expect(page.locator('.canvas-hint')).toContainText('Стены добавлены');
   const drawn = page.locator('.qf-canvas [data-wall-id]').first();
   await expect(drawn).toBeVisible();
   const id = await drawn.getAttribute('data-wall-id');
@@ -64,7 +64,6 @@ test('manual bathroom partition stays visible with furniture and is remembered o
   await expect(page.getByRole('status')).toContainText('Проверенный план сохранён');
   await expect(page.getByText('Сохранение…', { exact: true })).toBeHidden();
   await page.reload();
-  await page.getByRole('button', { name: 'Все проекты', exact: true }).click();
   await create('Повтор стен');
   await expect(page.getByText(/Использован проверенный вами план/)).toBeVisible();
   await expect(page.locator('.qf-canvas [data-wall-id]')).toHaveCount(1);

@@ -6,7 +6,8 @@ import { uid } from '../model/defaults';
 import { useStore } from '../state/store';
 import { useSourcePage } from '../state/useSource';
 import { PlanView, planBounds, polyPath } from '../plan/PlanView';
-import { addPlanWall, WALL_KINDS, calibrate, doorFromArc, isWallFill, openingFromClicks, resizeOpening, scaleOf, snapPoint, wallFromFill, type SnapKind } from '../editor/ops';
+import { addPlanWall, addPlanWallChain, WALL_KINDS, calibrate, doorFromArc, isWallFill, openingFromClicks, resizeOpening, scaleOf, snapPoint, wallFromFill, type SnapKind } from '../editor/ops';
+import { isTextInput } from '../editor/keyboard';
 import { SizeInput } from '../editor/SizeInput';
 import { SnapIndex } from '../pdf/vectors';
 import { detectRoomPolygon, geometryHash, openingWidth, roomArea } from '../geometry/plan';
@@ -23,7 +24,7 @@ const TOOLS: { id: Tool; label: string; key: string; hint: string }[] = [
   { id: 'pan', label: 'Рука', key: 'H', hint: 'Перетаскивайте план. Колесо — масштаб. Также: пробел или средняя кнопка мыши.' },
   { id: 'calibrate', label: 'Масштаб', key: 'C', hint: 'Отметьте два конца известного размера (например, размерной линии) и введите его в мм.' },
   { id: 'pickWall', label: 'Стена с чертежа', key: 'P', hint: 'Щёлкните по заливке стены на чертеже — стена ляжет точно по ней (подсказка, нужна проверка).' },
-  { id: 'wall', label: 'Стена', key: 'W', hint: 'Клики по оси стены; Shift — строго горизонтально или вертикально; число + Enter — длина; Esc — закончить.' },
+  { id: 'wall', label: 'Стена', key: 'W', hint: 'Щёлкайте углы полилинии; Enter — создать стены; Shift — горизонталь/вертикаль; число + Enter — длина сегмента; Esc — отменить.' },
   { id: 'pickDoor', label: 'Дверь с чертежа', key: 'G', hint: 'Щёлкните по дуге открывания двери на чертеже.' },
   { id: 'door', label: 'Дверь', key: 'D', hint: 'Отметьте два откоса двери. Петли и сторону открывания задайте справа.' },
   { id: 'window', label: 'Окно', key: 'O', hint: 'Отметьте два откоса окна.' },
@@ -100,9 +101,11 @@ export function MarkupScreen({ next }: { next: () => void }) {
   const page = g.sourcePage;
   const setG = (fn: (g: PlanGeometry) => PlanGeometry) => editGeometry(fn);
 
-  const addWall = (a: Pt, b: Pt) => {
-    if (dist(a, b) < 50) return;
-    setG(x => addPlanWall(x, { id: uid('w'), a, b, thickness: wallT, kind: wallKind, source: 'manual', verifiedByManager: true, sourcePage: page }));
+  const finishWalls = () => {
+    if (draft.length < 2) return;
+    setG(x => addPlanWallChain(x, draft, { thickness: wallT, kind: wallKind }));
+    setDraft([]); setLenInput(''); setCursor(null); setSel(null); setTool('select');
+    setMsg('Стены добавлены. Ctrl+Z — отменить всю полилинию.');
   };
   const rectPoly = (a: Pt, b: Pt): Pt[] => [{ x: a.x, y: a.y }, { x: b.x, y: a.y }, { x: b.x, y: b.y }, { x: a.x, y: b.y }];
 
@@ -121,8 +124,8 @@ export function MarkupScreen({ next }: { next: () => void }) {
         setDraft((d) => (d.length >= 2 ? [s] : [...d, s]));
         break;
       case 'wall':
-        if (draft.length) addWall(draft[draft.length - 1], s);
-        setDraft((d) => [...d, s]);
+        if (draft.length && dist(draft[draft.length - 1], s) < 50) return;
+        setDraft((d) => [...d, { x: Math.round(s.x), y: Math.round(s.y) }]);
         setLenInput('');
         break;
       case 'door':
@@ -237,28 +240,29 @@ export function MarkupScreen({ next }: { next: () => void }) {
   // Клавиатура.
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement;
-      const typing = t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT';
+      const typing = isTextInput(e.target);
+      if (typing || e.defaultPrevented) return;
       if (e.key === ' ' && !typing) { spaceDown.current = true; e.preventDefault(); return; }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); if (!e.shiftKey && draft.length) setDraft(d => d.slice(0, -1)); else if (e.shiftKey) redo(); else undo(); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
-      if (typing) return;
       if (e.key === 'Shift' && lastPointer.current) setCursor(snap(lastPointer.current, true));
-      if (e.key === 'Escape') { setDraft([]); setLenInput(''); return; }
-      if ((e.key === 'Delete' || e.key === 'Backspace') && sel) { removeSelected(); return; }
+      if (e.key === 'Escape') { e.preventDefault(); setDraft([]); setLenInput(''); setSel(null); return; }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && sel) { e.preventDefault(); removeSelected(); return; }
       if (tool === 'roomPoly' && e.key === 'Enter' && draft.length >= 3) { finishRoomPoly(draft); return; }
       if (tool === 'wall' && draft.length && /^[0-9]$/.test(e.key)) { setLenInput((s) => s + e.key); return; }
       if (tool === 'wall' && e.key === 'Enter' && lenInput && draft.length && cursor) {
         const a = draft[draft.length - 1];
         const d = norm(sub(cursor.p, a));
         const b = add(a, mul(d, Number(lenInput)));
-        addWall(a, { x: Math.round(b.x), y: Math.round(b.y) });
+        e.preventDefault();
+        if (dist(a, b) < 50) return;
         setDraft((dr) => [...dr, { x: Math.round(b.x), y: Math.round(b.y) }]);
         setLenInput('');
         return;
       }
+      if (tool === 'wall' && e.key === 'Enter') { e.preventDefault(); finishWalls(); return; }
       const tl = TOOLS.find((x) => x.key.toLowerCase() === e.key.toLowerCase());
-      if (tl && !e.ctrlKey && !e.metaKey) { setTool(tl.id); setDraft([]); }
+      if (tl && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); setTool(tl.id); setDraft([]); setSel(null); setLenInput(''); }
     };
     const up = (e: KeyboardEvent) => { if (e.key === ' ') spaceDown.current = false; if (e.key === 'Shift' && lastPointer.current) setCursor(snap(lastPointer.current, false)); };
     window.addEventListener('keydown', down);
@@ -337,7 +341,7 @@ export function MarkupScreen({ next }: { next: () => void }) {
 
       <div className="toolbar" role="toolbar" aria-label="Инструменты разметки">
         {TOOLS.map((t) => (
-          <button key={t.id} className={`tool ${tool === t.id ? 'on' : ''} ${t.id.startsWith('pick') ? 'alt' : ''}`} onClick={() => { setTool(t.id); setDraft([]); }} title={`${t.hint} (${t.key})`} disabled={t.id.startsWith('pick') && !index}>
+          <button key={t.id} className={`tool ${tool === t.id ? 'on' : ''} ${t.id.startsWith('pick') ? 'alt' : ''}`} onClick={() => { setTool(t.id); setDraft([]); setSel(null); setLenInput(''); }} title={`${t.hint} (${t.key})`} disabled={t.id.startsWith('pick') && !index}>
             {t.label}
           </button>
         ))}
@@ -359,6 +363,7 @@ export function MarkupScreen({ next }: { next: () => void }) {
                   ? <path d={polyPath([drawAnchor, { x: cursor.p.x, y: drawAnchor.y }, cursor.p, { x: drawAnchor.x, y: cursor.p.y }])} fill="rgba(210,105,30,.12)" stroke="#d2691e" strokeWidth={1.5} vectorEffect="non-scaling-stroke" strokeDasharray="5 4" />
                   : <path d={`M${drawAnchor.x} ${drawAnchor.y}L${cursor.p.x} ${cursor.p.y}`} stroke="#d2691e" strokeWidth={tool === 'wall' ? 3 : 2} vectorEffect="non-scaling-stroke" strokeDasharray={tool === 'wall' ? undefined : '6 4'} />
               )}
+              {tool === 'wall' && draft.length > 1 && <path data-wall-draft="true" d={'M' + draft.map(q => `${q.x} ${q.y}`).join('L')} fill="none" stroke="#d2691e" strokeWidth={3} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
               {tool === 'roomPoly' && draft.length > 0 && <path d={'M' + draft.map((q) => `${q.x} ${q.y}`).join('L')} fill="rgba(210,105,30,.08)" stroke="#d2691e" strokeWidth={2} vectorEffect="non-scaling-stroke" />}
               {draft.length > 0 && (tool === 'wall' || tool === 'roomPoly') && draft.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r={4 * mmPerPx()} fill="#d2691e" />)}
               {cursor && tool !== 'select' && tool !== 'pan' && (
@@ -397,6 +402,7 @@ export function MarkupScreen({ next }: { next: () => void }) {
           {tool === 'wall' && (
             <div className="card">
               <h3>Новая стена</h3>
+              <div className="actions"><button className="btn sm" disabled={draft.length < 2} onClick={finishWalls}>Завершить стены (Enter)</button><button className="btn ghost sm" disabled={!draft.length} onClick={() => { setDraft([]); setLenInput(''); }}>Отменить рисование (Esc)</button></div>
               <div className="fields">
                 <label className="field">Толщина, мм<input type="number" value={wallT} onChange={(e) => setWallT(Math.max(30, Number(e.target.value) || 150))} /></label>
                 <label className="field">Тип<select value={wallKind} onChange={(e) => setWallKind(e.target.value as WallKind)}>{WALL_KINDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>

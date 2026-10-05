@@ -12,6 +12,15 @@ export function addPlanWall(g: PlanGeometry, wall: Wall): PlanGeometry {
   return { ...g, ...(usesRoomWalls(g) ? { wallMode: 'rooms' as const } : {}), walls: [...g.walls, wall] };
 }
 
+/** Все сегменты полилинии добавляются одним действием истории. */
+export function addPlanWallChain(g: PlanGeometry, points: Pt[], style: Pick<Wall, 'thickness' | 'kind'>): PlanGeometry {
+  if (points.length < 2) return g;
+  return points.slice(1).reduce((next, b, i) => addPlanWall(next, {
+    id: uid('w'), a: points[i], b, ...style,
+    source: 'manual', verifiedByManager: true, sourcePage: g.sourcePage,
+  }), g);
+}
+
 /** Предварительный масштаб до калибровки: PDF — как 1:50 (мм на pt), растр — 10 мм на пиксель. */
 export function provisionalScale(mime: string | undefined): number {
   return mime === 'application/pdf' ? (25.4 / 72) * 50 : 10;

@@ -1,6 +1,7 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState, type PointerEvent as RPE } from 'react';
 import { scaleGeometry } from '../editor/ops';
 import { resizeFurniture } from '../editor/furniture';
+import { ownsShortcut } from '../editor/keyboard';
 import { SizeInput } from '../editor/SizeInput';
 import type { FurnitureItem, FurnitureType, PlanStyle, Project, RoomType, Rot, Variant } from '../model/types';
 import { uid } from '../model/defaults';
@@ -135,6 +136,7 @@ function VariantDetail({ v }: { v: Variant }) {
   const { project, update, rules } = useStore();
   const g = project.geometry;
   const [items, setItems] = useState<FurnitureItem[]>(v.items);
+  const rootRef = useRef<HTMLDivElement>(null);
   const [selId, setSelId] = useState<string | null>(null);
   const [hl, setHl] = useState<string[]>([]);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -166,6 +168,7 @@ function VariantDetail({ v }: { v: Variant }) {
   };
   const onItemDown = (e: RPE<SVGGElement>, it: FurnitureItem) => {
     e.stopPropagation();
+    svgRef.current?.focus({ preventScroll: true });
     setSelId(it.id);
     const p = toWorld(e);
     drag.current = { id: it.id, start: { x: p.x, y: p.y }, item: { x: it.x, y: it.y } };
@@ -196,10 +199,9 @@ function VariantDetail({ v }: { v: Variant }) {
 
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement;
-      if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT') return;
+      if (!ownsShortcut(rootRef.current, e) || e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.key.toLowerCase() === 'r' && sel) rotate();
-      if ((e.key === 'Delete' || e.key === 'Backspace') && sel) remove();
+      if ((e.key === 'Delete' || e.key === 'Backspace') && sel) { e.preventDefault(); remove(); }
       if (e.key === 'Escape') setSelId(null);
     };
     window.addEventListener('keydown', k);
@@ -216,10 +218,10 @@ function VariantDetail({ v }: { v: Variant }) {
   const shown = hl.length ? result.issues.filter((i) => i.itemIds.some((id) => hl.includes(id))) : result.issues;
 
   return (
-    <div className="detail">
+    <div ref={rootRef} className="detail">
       <div className="card" style={{ padding: 12 }}>
         <PlanView ref={svgRef} g={g} items={items} issues={result.issues} mode="variant" wallImage={project.planImage} planStyle={project.planStyle} selectedId={selId} viewBox={planBounds(g, 500)}
-          onItemPointerDown={onItemDown} svgProps={{ onPointerMove: onMove, onPointerUp: onUp, onPointerDown: () => setSelId(null) }} />
+          onItemPointerDown={onItemDown} svgProps={{ tabIndex: 0, onPointerMove: onMove, onPointerUp: onUp, onPointerDown: () => { svgRef.current?.focus({ preventScroll: true }); setSelId(null); } }} />
         <div className="actions" style={{ marginTop: 10 }}>
           <label className="field" style={{ minWidth: 200 }}><span className="hint">Добавить предмет</span>
             <select value="" onChange={(e) => e.target.value && addItem(e.target.value as FurnitureType)}>

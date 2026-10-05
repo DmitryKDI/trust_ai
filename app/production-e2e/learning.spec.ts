@@ -38,7 +38,6 @@ test('manual type -> confirmed example -> same uploaded plan remembers correctio
     await page.locator('main').screenshot({ path: process.env.LEARNING_SCREENSHOT });
   }
   await page.reload();
-  await page.getByRole('button', { name: 'Все проекты', exact: true }).click();
   await create('Повторная загрузка');
   await expect(page.getByText(/Использован проверенный вами план/)).toBeVisible();
   const recalled = await readProject(page, 'Повторная загрузка');

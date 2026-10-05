@@ -17,6 +17,7 @@ test('открытый net15: загрузка, worker, семь зон и со�
   await expect(page.getByText(/План прочитан автоматически: 7 помещ/)).toBeVisible();
   await expect(page.getByText('Сохранение…', { exact: true })).toBeHidden();
   await page.reload();
+  await page.locator('.prow').filter({ hasText: 'Контроль net15' }).getByRole('button', { name: 'Открыть', exact: true }).click();
   const stored = await page.evaluate(async () => {
     const req = indexedDB.open('trust-planner');
     const db = await new Promise<IDBDatabase>((resolve, reject) => { req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); });

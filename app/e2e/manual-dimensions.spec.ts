@@ -30,7 +30,7 @@ test('Shift, ширина двери, две створки и размеры в
   await page.keyboard.down('Shift'); await page.mouse.move(b.x, b.y);
   await expect(canvas.locator('[data-wall-preview]')).toBeAttached();
   await expect(canvas.locator('[data-wall-preview]')).toHaveAttribute('d', /M7000 4500L[\d.]+ 4500/);
-  await page.mouse.click(b.x, b.y); await page.keyboard.up('Shift');
+  await page.mouse.click(b.x, b.y); await page.keyboard.up('Shift'); await page.keyboard.press('Enter');
   await expect.poll(async () => (await saved(page)).geometry.walls.length).toBe(7);
   const w = (await saved(page)).geometry.walls[6]; expect(w.a.y).toBe(w.b.y);
   await page.getByRole('button', { name: 'Дверь', exact: true }).click();
@@ -45,7 +45,7 @@ test('Shift, ширина двери, две створки и размеры в
   await page.getByLabel('Глубина предмета, мм').fill('550'); await page.getByLabel('Глубина предмета, мм').press('Enter');
   await expect.poll(async () => (await saved(page)).variants[0].items[0].d).toBe(550);
   expect((await saved(page)).variants[0].items[0].w).toBe(1400);
-  await page.reload(); await page.getByRole('button', { name: /Варианты/ }).first().click();
+  await page.reload(); await page.locator('.prow').filter({ hasText: 'Ручные размеры' }).getByRole('button', { name: 'Открыть', exact: true }).click(); await page.getByRole('button', { name: /Варианты/ }).first().click();
   const restored = await saved(page);
   expect(restored.variants[0].items[0]).toMatchObject({ w: 1400, d: 550, x: 2500, y: 2000 });
   const d = restored.geometry.openings.at(-1); expect(d.leaves).toBe(2); expect(Math.hypot(d.b.x - d.a.x, d.b.y - d.a.y)).toBeCloseTo(1400);

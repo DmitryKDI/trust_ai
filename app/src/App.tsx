@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Project } from './model/types';
 import { newProject } from './model/defaults';
-import { deleteProject, exportProject, getProject, importProject, listProjects, saveProject } from './storage/db';
+import { deleteProject, exportProject, importProject, listProjects, saveProject } from './storage/db';
 import { ProjectProvider, useStore } from './state/store';
 import { UploadScreen } from './screens/Upload';
 import { BriefScreen } from './screens/Brief';
@@ -13,24 +13,11 @@ import { ProjectScreen } from './screens/ProjectInfo';
 import { RulesModal } from './screens/Rules';
 
 export const STEPS = ['Проект', 'Загрузка', 'Бриф', 'Разметка', 'Варианты', 'Мини-концепция', 'Для клиента'] as const;
-const LAST = 'trust-planner:last';
 
 export function App() {
   const [project, setProject] = useState<Project | null>(null);
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    let id: string | null = null;
-    try { id = localStorage.getItem(LAST); } catch { /* приватный режим */ }
-    (id ? getProject(id) : Promise.resolve(undefined)).then((p) => { if (p) setProject(p); }).finally(() => setReady(true));
-  }, []);
-
-  const open = (p: Project | null) => {
-    try { if (p) localStorage.setItem(LAST, p.id); else localStorage.removeItem(LAST); } catch { /* ignore */ }
-    setProject(p);
-  };
-
-  if (!ready) return null;
+  // Каждый запуск начинается с пустой формы. Старый проект открывается только вручную.
+  const open = (p: Project | null) => setProject(p);
   if (!project) return <Projects onOpen={open} />;
   return (
     <ProjectProvider key={project.id} initial={project}>
