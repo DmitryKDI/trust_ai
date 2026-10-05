@@ -43,7 +43,7 @@ test('3D: сцена, размеры, материалы, ракурс для к
   const textureDataUrl = 'data:image/png;base64,' + PNG.sync.write(texture).toString('base64');
   await page.getByLabel('Импорт каталога материалов', { exact: true }).setInputFiles({ name: 'materials.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ version: 1, materials: [{ id: 'floor-test', name: 'Тёмный дуб', category: 'floor', color: '#704c32', price: 2500, unit: 'м²', textureDataUrl, tileWidthMm: 1200, tileHeightMm: 200 }] })) });
   await page.getByLabel('Материал: Пол', { exact: true }).selectOption('floor-test');
-  await expect.poll(async () => (await saved(page)).concept.scene3d.assignments.floor).toBe('floor-test');
+  await expect.poll(async () => (await saved(page))?.concept.scene3d?.assignments.floor).toBe('floor-test');
   await page.getByLabel('Импорт каталога материалов', { exact: true }).setInputFiles({ name: 'broken.json', mimeType: 'application/json', buffer: Buffer.from('{"version":9,"materials":[]}') });
   await expect(page.getByRole('alert')).toContainText('Нужен каталог');
   expect((await saved(page)).concept.materialCatalog.materials[0].id).toBe('floor-test');
