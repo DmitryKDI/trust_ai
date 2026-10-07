@@ -297,7 +297,7 @@ function VariantDetail({ v }: { v: Variant }) {
           </label>
           {sel && (
             <>
-              <span className="badge">{CATALOG[sel.type].name} {sel.w}×{sel.d}</span>
+              <span className="badge">{CATALOG[sel.type].name} {Math.round(sel.w)}×{Math.round(sel.d)}</span>
               <button className="btn secondary sm" onClick={rotate}>Повернуть (R)</button>
               <div className="fields" key={sel.id}>
                 <SizeInput label="Ширина предмета, мм" value={sel.w} onCommit={w => patchSel(resizeFurniture(sel, w, sel.d))} />
