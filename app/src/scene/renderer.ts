@@ -35,6 +35,7 @@ export function createSceneRenderer(canvas: HTMLCanvasElement, scene: SceneModel
   const locations = { center: uniform('center'), camera: uniform('camera'), aspect: uniform('aspect'), color: uniform('color'), image: uniform('image'), textured: uniform('textured'), tile: uniform('tile') };
   const attrs = ['position', 'normal', 'uv'].map(n => gl.getAttribLocation(program, n));
   let disposed = false, camera = DEFAULT_CAMERA;
+  const loading: Promise<void>[] = [];
   const groups = new Map<MaterialSlot, number[]>();
   for (const node of scene.nodes) { const values = nodeVertices(node), existing = groups.get(node.material) ?? []; for (const value of values) existing.push(value); groups.set(node.material, existing); }
   const batches = [...groups].map(([slot, values]) => {
@@ -49,13 +50,14 @@ export function createSceneRenderer(canvas: HTMLCanvasElement, scene: SceneModel
     const batch = { buffer, count: values.length / 8, rgb, texture, textured: false, tile: [(material?.tileWidthMm ?? 1000) / 1000, (material?.tileHeightMm ?? 1000) / 1000] };
     if (material?.textureDataUrl) {
       const image = new Image();
+      let complete!: () => void; loading.push(new Promise<void>(resolve => { complete = resolve; }));
       image.onload = () => {
-        if (disposed || gl.isContextLost()) return;
-        if (image.width > 4096 || image.height > 4096) { warn(`Текстура «${material.name}» слишком большая: максимум 4096 × 4096.`); return; }
-        gl.bindTexture(gl.TEXTURE_2D, texture); gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image); batch.textured = true; draw(camera);
+        if (disposed || gl.isContextLost()) { complete(); return; }
+        if (image.width > 4096 || image.height > 4096) { warn(`Текстура «${material.name}» слишком большая: максимум 4096 × 4096.`); complete(); return; }
+        try { gl.bindTexture(gl.TEXTURE_2D, texture); gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image); batch.textured = true; draw(camera); } catch { warn(`Не удалось применить текстуру «${material.name}».`); } finally { complete(); }
       };
-      image.onerror = () => { if (!disposed) warn(`Не удалось открыть текстуру «${material.name}». Используется базовый цвет.`); };
+      image.onerror = () => { complete(); if (!disposed) warn(`Не удалось открыть текстуру «${material.name}». Используется базовый цвет.`); };
       image.src = material.textureDataUrl;
     }
     return batch;
@@ -78,5 +80,5 @@ export function createSceneRenderer(canvas: HTMLCanvasElement, scene: SceneModel
       gl!.activeTexture(gl!.TEXTURE0); gl!.bindTexture(gl!.TEXTURE_2D, batch.texture); gl!.drawArrays(gl!.TRIANGLES, 0, batch.count);
     }
   }
-  return { draw, destroy() { disposed = true; for (const b of buffers) gl.deleteBuffer(b); for (const t of textures) gl.deleteTexture(t); for (const s of shaders) gl.deleteShader(s); gl.deleteProgram(program); } };
+  return { draw, ready: Promise.all(loading), destroy() { if (disposed) return; disposed = true; for (const b of buffers) gl.deleteBuffer(b); for (const t of textures) gl.deleteTexture(t); for (const s of shaders) gl.deleteShader(s); gl.deleteProgram(program); } };
 }

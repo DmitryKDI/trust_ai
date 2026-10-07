@@ -6,8 +6,11 @@ import { uid } from '../model/defaults';
 import { useStore } from '../state/store';
 import { useSourcePage } from '../state/useSource';
 import { PlanView, planBounds, polyPath } from '../plan/PlanView';
-import { addPlanWall, addPlanWallChain, WALL_KINDS, calibrate, doorFromArc, isWallFill, openingFromClicks, resizeOpening, scaleOf, snapPoint, wallFromFill, type SnapKind } from '../editor/ops';
+import { addPlanWall, addPlanWallChain, WALL_KINDS, calibrate, doorFromArc, isWallFill, openingFromClicks, resizeOpening, scaleOf, snapPoint, snapPolylineClosure, wallFromFill, type SnapKind } from '../editor/ops';
 import { isTextInput } from '../editor/keyboard';
+import { BatchProperties } from '../editor/BatchProperties';
+import { GeometryHandles, WallAngle } from '../editor/GeometryHandles';
+import { deleteSelection, selectElement, type ElementSelection } from '../editor/selection';
 import { SizeInput } from '../editor/SizeInput';
 import { SnapIndex } from '../pdf/vectors';
 import { detectRoomPolygon, geometryHash, openingWidth, roomArea } from '../geometry/plan';
@@ -20,7 +23,7 @@ type Tool = 'select' | 'pan' | 'calibrate' | 'wall' | 'pickWall' | 'door' | 'win
 type Sel = { kind: 'wall' | 'opening' | 'fixed' | 'room' | 'wet'; id: string } | null;
 
 const TOOLS: { id: Tool; label: string; key: string; hint: string }[] = [
-  { id: 'select', label: 'Выбор', key: 'V', hint: 'Щёлкните элемент, чтобы изменить или подтвердить его. Delete — удалить.' },
+  { id: 'select', label: 'Выбор', key: 'V', hint: 'Щёлкните элемент, чтобы изменить или подтвердить его. Shift + щелчок — выбрать несколько; Delete — удалить выбранные.' },
   { id: 'pan', label: 'Рука', key: 'H', hint: 'Перетаскивайте план. Колесо — масштаб. Также: пробел или средняя кнопка мыши.' },
   { id: 'calibrate', label: 'Масштаб', key: 'C', hint: 'Отметьте два конца известного размера (например, размерной линии) и введите его в мм.' },
   { id: 'pickWall', label: 'Стена с чертежа', key: 'P', hint: 'Щёлкните по заливке стены на чертеже — стена ляжет точно по ней (подсказка, нужна проверка).' },
@@ -49,7 +52,9 @@ export function MarkupScreen({ next }: { next: () => void }) {
   const [newRoomType, setNewRoomType] = useState<RoomType>('other');
   const [draft, setDraft] = useState<Pt[]>([]);
   const [cursor, setCursor] = useState<{ p: Pt; kind: SnapKind } | null>(null);
-  const [sel, setSel] = useState<Sel>(null);
+  const [selection, setSelection] = useState<ElementSelection[]>([]);
+  const sel: Sel = selection.length === 1 ? selection[0] : null;
+  const setSel = (value: Sel) => setSelection(value ? [value] : []);
   const [view, setView] = useState<BBox | null>(null);
   const [opacity, setOpacity] = useState(0.8);
   const [showUnderlay, setShowUnderlay] = useState(true);
@@ -93,6 +98,8 @@ export function MarkupScreen({ next }: { next: () => void }) {
   };
 
   const snap = (raw: Pt, shift: boolean) => {
+    const closed = (tool === 'wall' || tool === 'roomPoly') ? snapPolylineClosure(raw, draft, 12 * mmPerPx()) : null;
+    if (closed) return { p: closed, kind: 'closure' as const };
     const anchor = draft.length ? draft[draft.length - 1] : null;
     const linear = ['wall', 'door', 'window', 'calibrate', 'roomPoly'].includes(tool);
     return snapPoint(raw, { g, k, index, radiusMm: 12 * mmPerPx(), anchor, ortho: ortho && linear, forceOrtho: shift && linear, vectors: vecSnap });
@@ -101,9 +108,9 @@ export function MarkupScreen({ next }: { next: () => void }) {
   const page = g.sourcePage;
   const setG = (fn: (g: PlanGeometry) => PlanGeometry) => editGeometry(fn);
 
-  const finishWalls = () => {
-    if (draft.length < 2) return;
-    setG(x => addPlanWallChain(x, draft, { thickness: wallT, kind: wallKind }));
+  const finishWalls = (points = draft) => {
+    if (points.length < 2) return;
+    setG(x => addPlanWallChain(x, points, { thickness: wallT, kind: wallKind }));
     setDraft([]); setLenInput(''); setCursor(null); setSel(null); setTool('select');
     setMsg('Стены добавлены. Ctrl+Z — отменить всю полилинию.');
   };
@@ -124,6 +131,7 @@ export function MarkupScreen({ next }: { next: () => void }) {
         setDraft((d) => (d.length >= 2 ? [s] : [...d, s]));
         break;
       case 'wall':
+        if (snapPolylineClosure(raw, draft, 12 * mmPerPx())) { finishWalls([...draft, draft[0]]); break; }
         if (draft.length && dist(draft[draft.length - 1], s) < 50) return;
         setDraft((d) => [...d, { x: Math.round(s.x), y: Math.round(s.y) }]);
         setLenInput('');
@@ -231,11 +239,9 @@ export function MarkupScreen({ next }: { next: () => void }) {
   }, [onWheel]);
 
   const removeSelected = useCallback(() => {
-    if (!sel) return;
-    const key = ({ wall: 'walls', opening: 'openings', fixed: 'fixed', room: 'rooms', wet: 'wetZones' } as const)[sel.kind];
-    editGeometry((x) => ({ ...x, [key]: (x[key] as { id: string }[]).filter((i) => i.id !== sel.id) }));
-    setSel(null);
-  }, [sel, editGeometry]);
+    if (!selection.length) return;
+    editGeometry(x => deleteSelection(x, selection)); setSel(null);
+  }, [selection, editGeometry]);
 
   // Клавиатура.
   useEffect(() => {
@@ -247,7 +253,7 @@ export function MarkupScreen({ next }: { next: () => void }) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
       if (e.key === 'Shift' && lastPointer.current) setCursor(snap(lastPointer.current, true));
       if (e.key === 'Escape') { e.preventDefault(); setDraft([]); setLenInput(''); setSel(null); return; }
-      if ((e.key === 'Delete' || e.key === 'Backspace') && sel) { e.preventDefault(); removeSelected(); return; }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selection.length) { e.preventDefault(); removeSelected(); return; }
       if (tool === 'roomPoly' && e.key === 'Enter' && draft.length >= 3) { finishRoomPoly(draft); return; }
       if (tool === 'wall' && draft.length && /^[0-9]$/.test(e.key)) { setLenInput((s) => s + e.key); return; }
       if (tool === 'wall' && e.key === 'Enter' && lenInput && draft.length && cursor) {
@@ -353,9 +359,9 @@ export function MarkupScreen({ next }: { next: () => void }) {
       <div className="editor">
         <div>
           <div className="canvas-wrap">
-            <PlanView ref={svgRef} g={g} mode="editor" underlay={underlay} viewBox={vb} selectedId={sel?.id}
-              onElementClick={(kind, id) => { if (tool === 'select') setSel({ kind, id }); }}
-              svgProps={{ onPointerDown: onDown, onPointerMove: onMove, onPointerUp: onUp, onPointerLeave: () => setCursor(null), style: { cursor: tool === 'pan' ? 'grab' : tool === 'select' ? 'default' : 'crosshair' } }}>
+            <PlanView ref={svgRef} g={g} mode="editor" underlay={underlay} viewBox={vb} selectedIds={selection.map(s => s.id)}
+              onElementClick={(kind, id, event) => { if (tool === 'select') setSelection(current => selectElement(current, { kind, id }, event.shiftKey)); }}
+              svgProps={{ tabIndex: 0, onPointerDown: onDown, onPointerMove: onMove, onPointerUp: onUp, onPointerLeave: () => setCursor(null), style: { cursor: tool === 'pan' ? 'grab' : tool === 'select' ? 'default' : 'crosshair' } }}>
               {tool === 'calibrate' && draft.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r={6 * mmPerPx()} fill="#d2691e" />)}
               {tool === 'calibrate' && draft.length === 2 && <path d={`M${draft[0].x} ${draft[0].y}L${draft[1].x} ${draft[1].y}`} stroke="#d2691e" strokeWidth={2} vectorEffect="non-scaling-stroke" />}
               {drawAnchor && cursor && tool !== 'calibrate' && (
@@ -372,11 +378,13 @@ export function MarkupScreen({ next }: { next: () => void }) {
                   {cursor.kind !== 'none' && <circle cx={cursor.p.x} cy={cursor.p.y} r={2 * mmPerPx()} fill="#d2691e" />}
                 </g>
               )}
+              {tool === 'select' && <GeometryHandles key={sel?.id ?? 'none'} geometry={g} selection={sel} radius={6 * mmPerPx()} onChange={setG} onError={setMsg} />}
+              {cursor?.kind === 'closure' && draft.length >= 3 && <circle data-closure-snap="true" cx={draft[0].x} cy={draft[0].y} r={10 * mmPerPx()} fill="none" stroke="#2f6f8f" strokeWidth={2} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
             </PlanView>
             <div className="canvas-hint">{msg ?? hint}</div>
             <div className="canvas-hud">
               {cursor ? `x ${Math.round(cursor.p.x)} · y ${Math.round(cursor.p.y)} мм` : 'Наведите курсор на план'}
-              {cursor && cursor.kind !== 'none' && ` · привязка: ${({ geometry: 'узел разметки', 'vector-point': 'точка чертежа', 'vector-line': 'линия чертежа', ortho: 'ортогональ', none: '' } as Record<SnapKind, string>)[cursor.kind]}`}
+              {cursor && cursor.kind !== 'none' && ` · привязка: ${({ geometry: 'узел разметки', 'vector-point': 'точка чертежа', 'vector-line': 'линия чертежа', ortho: 'ортогональ', closure: 'замыкание', none: '' } as Record<SnapKind, string>)[cursor.kind]}`}
               {drawAnchor && cursor && ` · длина ${Math.round(dist(drawAnchor, cursor.p))} мм`}
               {lenInput && ` · ввод длины: ${lenInput} мм (Enter)`}
             </div>
@@ -402,7 +410,7 @@ export function MarkupScreen({ next }: { next: () => void }) {
           {tool === 'wall' && (
             <div className="card">
               <h3>Новая стена</h3>
-              <div className="actions"><button className="btn sm" disabled={draft.length < 2} onClick={finishWalls}>Завершить стены (Enter)</button><button className="btn ghost sm" disabled={!draft.length} onClick={() => { setDraft([]); setLenInput(''); }}>Отменить рисование (Esc)</button></div>
+              <div className="actions"><button className="btn sm" disabled={draft.length < 2} onClick={() => finishWalls()}>Завершить стены (Enter)</button><button className="btn ghost sm" disabled={!draft.length} onClick={() => { setDraft([]); setLenInput(''); }}>Отменить рисование (Esc)</button></div>
               <div className="fields">
                 <label className="field">Толщина, мм<input type="number" value={wallT} onChange={(e) => setWallT(Math.max(30, Number(e.target.value) || 150))} /></label>
                 <label className="field">Тип<select value={wallKind} onChange={(e) => setWallKind(e.target.value as WallKind)}>{WALL_KINDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
@@ -413,6 +421,8 @@ export function MarkupScreen({ next }: { next: () => void }) {
             <div className="card"><h3>Инженерный элемент</h3><select value={fixedKind} onChange={(e) => setFixedKind(e.target.value as FixedKind)}>{FIXED_KINDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
           )}
           {tool === 'door' && <div className="card"><h3>Новая дверь</h3><label className="field">Створки новой двери<select value={doorLeaves} onChange={e => setDoorLeaves(Number(e.target.value) as 1 | 2)}><option value={1}>Одна створка</option><option value={2}>Две равные створки</option></select></label><p className="hint">Ширина — расстояние между двумя отмеченными откосами. После добавления её можно задать числом.</p></div>}
+          <BatchProperties geometry={g} selection={selection} onChange={setG} onDelete={removeSelected} />
+          {sel && <div className="card"><WallAngle geometry={g} selection={sel} onChange={setG} onError={setMsg} /><p className="hint">Перетаскивайте точки на углах выбранной фигуры. Shift — ортогональ; Alt — без привязки.</p></div>}
           {sel && <Properties sel={sel} onDelete={removeSelected} />}
           <div className="card">
             <h3>Проверка разметки</h3>
@@ -518,3 +528,4 @@ function Properties({ sel, onDelete }: { sel: NonNullable<Sel>; onDelete: () => 
     </div>
   );
 }
+

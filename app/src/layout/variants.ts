@@ -73,15 +73,21 @@ export function explain(g: PlanGeometry, scenario: ScenarioKey, items: Furniture
   return { benefits, compromises, assumptions, changes, metrics: mt };
 }
 
-export function buildVariants(g: PlanGeometry, brief: Brief, rules: Rules, scenarios: ScenarioKey[] = SCENARIO_ORDER): BuildResult {
+export interface BuildOptions { seed?: number; previous?: FurnitureItem[] }
+
+export function layoutSignature(items: FurnitureItem[]): string {
+  return items.map(i => `${i.type}:${i.roomId}:${i.rot}:${i.w}:${i.d}:${Math.round(i.x)},${Math.round(i.y)}`).sort().join('|');
+}
+
+export function buildVariants(g: PlanGeometry, brief: Brief, rules: Rules, scenarios: ScenarioKey[] = SCENARIO_ORDER, options: BuildOptions = {}): BuildResult {
   const variants: Variant[] = [];
   const rejected: Rejected[] = [];
-  const avoid: Placement[] = [];
+  const avoid: Placement[] = (options.previous ?? []).filter(i => i.ruleId && i.roomId).map(i => ({ ruleId: i.ruleId!, roomId: i.roomId!, rot: i.rot, x: i.x, y: i.y, edge: null }));
   const sigs: { sig: string; title: string; storage: number }[] = [];
   const hash = geometryHash(g);
 
   for (const scenario of scenarios) {
-    const r = runEngine({ g, brief, rules, scenario, avoid });
+    const r = runEngine({ g, brief, rules, scenario, avoid, seed: options.seed });
     let v = validate(g, r.items, rules, brief, { expectedHash: hash });
     // Доводка: точная проверка нашла проблему у необязательного предмета — убираем его и перепроверяем.
     const mandatory = new Set(r.scenario.rules.filter((x) => x.mandatory).map((x) => x.id));

@@ -4,6 +4,7 @@ import { uid } from '../model/defaults';
 import { useStore } from '../state/store';
 import { PlanView, planBounds } from '../plan/PlanView';
 import { ScenePanel } from '../scene/ScenePanel';
+import { CLIENT_GOALS, STYLE_PRESETS, applyStyle, alternatePalette, randomStyleIndex, rationaleFor } from '../concept/presets';
 
 export function ConceptScreen({ next }: { next: () => void }) {
   const { project, update } = useStore();
@@ -49,7 +50,20 @@ export function ConceptScreen({ next }: { next: () => void }) {
       <ScenePanel />
       <div className="grid2">
         <section className="card">
-          <label className="field">Стиль<input value={c.styleName} onChange={(e) => set({ styleName: e.target.value })} /></label>
+          <h3>Задачи клиента</h3>
+          <div className="actions" style={{ marginTop: 8 }}>{CLIENT_GOALS.map(goal => <label key={goal.id} className="check-inline"><input type="checkbox" checked={(c.clientGoals ?? []).includes(goal.id)} onChange={e => {
+            const clientGoals = e.target.checked ? [...(c.clientGoals ?? []), goal.id] : (c.clientGoals ?? []).filter(id => id !== goal.id);
+            set({ clientGoals, rationale: rationaleFor(STYLE_PRESETS.find(p => p.styleName === c.styleName)?.rationale ?? STYLE_PRESETS[0].rationale, clientGoals) });
+          }} />{goal.name}</label>)}</div>
+          <button className="btn secondary sm" onClick={() => {
+            const goals = c.clientGoals ?? []; const index = goals.includes('care') || goals.includes('family') ? 2 : goals.includes('space') || goals.includes('light') ? 1 : goals.includes('budget') ? 3 : goals.includes('cozy') ? 4 : 0;
+            set(applyStyle(c, index));
+          }}>Подобрать под задачи клиента</button>
+          <label className="field" style={{ marginTop: 16 }}>Готовый стиль<select aria-label="Готовый стиль" value={STYLE_PRESETS.findIndex(p => p.styleName === c.styleName)} onChange={e => set(applyStyle(c, Number(e.target.value)))}>
+            <option value={-1} disabled>Свой стиль</option>{STYLE_PRESETS.map((p, i) => <option key={p.styleName} value={i}>{p.styleName}</option>)}
+          </select></label>
+          <div className="actions" style={{ marginTop: 10 }}><button className="btn secondary sm" onClick={() => set(applyStyle(c, randomStyleIndex(c.styleName)))}>Случайный стиль</button><button className="btn secondary sm" onClick={() => set({ palette: alternatePalette(c) })}>Другая сочетающаяся палитра</button></div>
+          <label className="field" style={{ marginTop: 12 }}>Название стиля<input value={c.styleName} onChange={(e) => set({ styleName: e.target.value })} /></label>
           <h3 style={{ marginTop: 16 }}>Палитра</h3>
           <div className="palette">
             {c.palette.map((s, i) => (
@@ -59,10 +73,10 @@ export function ConceptScreen({ next }: { next: () => void }) {
               </div>
             ))}
           </div>
-          <h3 style={{ marginTop: 16 }}>Материалы (3–5)</h3>
+          <h3 style={{ marginTop: 16 }}>Материалы (3–5)</h3><datalist id="material-suggestions">{[...new Set(STYLE_PRESETS.flatMap(p => p.materials))].map(m => <option key={m} value={m} />)}</datalist>
           {c.materials.map((m, i) => (
             <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-              <input value={m} onChange={(e) => set({ materials: c.materials.map((x, j) => (j === i ? e.target.value : x)) })} />
+              <input list="material-suggestions" aria-label={`Материал ${i + 1}`} value={m} onChange={(e) => set({ materials: c.materials.map((x, j) => (j === i ? e.target.value : x)) })} />
               <button className="btn ghost sm" onClick={() => set({ materials: c.materials.filter((_, j) => j !== i) })} disabled={c.materials.length <= 3} aria-label="Убрать материал">✕</button>
             </div>
           ))}

@@ -1,6 +1,8 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState, type PointerEvent as RPE } from 'react';
 import { scaleGeometry } from '../editor/ops';
-import { resizeFurniture } from '../editor/furniture';
+import { changeFurnitureType, resizeFurniture } from '../editor/furniture';
+import { FurnitureHandles } from '../editor/FurnitureHandles';
+import { furnitureSnapContext, resizeFurnitureAtHandle, snapFurnitureMove, snapFurnitureResize, type ResizeHandle, type SnapGuide, type FurnitureSnapContext } from '../editor/furniture-interaction';
 import { ownsShortcut } from '../editor/keyboard';
 import { SizeInput } from '../editor/SizeInput';
 import type { FurnitureItem, FurnitureType, PlanStyle, Project, RoomType, Rot, Variant } from '../model/types';
@@ -10,9 +12,9 @@ import { useSourcePage } from '../state/useSource';
 import { PlanView, planBounds, STYLE_NAMES } from '../plan/PlanView';
 import { CATALOG, DINING_PRESETS, kitchenModules } from '../furniture/catalog';
 import { geometryHash, roomArea } from '../geometry/plan';
-import { centroid, pointInPolygon } from '../geometry/poly';
+import { centroid, localToWorld, pointInPolygon } from '../geometry/poly';
 import { validate } from '../validate/validator';
-import { explain, isReady, type Rejected } from '../layout/variants';
+import { explain, isReady, layoutSignature, type Rejected } from '../layout/variants';
 import { runVariantsInWorker } from '../layout/runVariants';
 import { QuickFix } from './QuickFix';
 import { LearningPanel } from '../learning/Panel';
@@ -33,14 +35,27 @@ export function VariantsScreen({ next, back }: { next: () => void; back: () => v
   const [rebuild, setRebuild] = useState(0);
   useEffect(() => { if (rebuild) build(); }, [rebuild]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const build = async () => {
+  const build = async (target?: Variant) => {
+    if (busy) return;
     setBusy(true);
     setErr(null);
     try {
-      const res = await runVariantsInWorker(g, project.brief, project.ruleOverrides);
-      update((p) => ({ ...p, variants: res.variants, selectedVariantId: null, review: null }));
+      const res = await runVariantsInWorker(g, project.brief, project.ruleOverrides, target ? [target.scenario] : undefined, { seed: crypto.getRandomValues(new Uint32Array(1))[0] || 1, previous: project.variants.flatMap(v => v.items) });
+      if (target) {
+        const replacement = res.variants[0];
+        if (!replacement || layoutSignature(replacement.items) === layoutSignature(target.items) || project.variants.some(v => v.id !== target.id && layoutSignature(v.items) === layoutSignature(replacement.items))) {
+          setErr('Другую расстановку для этого варианта найти не удалось. Измените задачи клиента или размеры мебели и повторите.'); return;
+        }
+        update(p => ({ ...p, variants: p.variants.map(v => v.id === target.id ? replacement : v), selectedVariantId: p.selectedVariantId === target.id ? null : p.selectedVariantId, review: p.review?.variantId === target.id ? null : p.review }));
+        setOpenId(replacement.id);
+      } else {
+        if (project.variants.length && res.variants.every(v => project.variants.some(old => layoutSignature(old.items) === layoutSignature(v.items)))) {
+          setErr('Новые допустимые расстановки не найдены. Текущие варианты сохранены.'); return;
+        }
+        update(p => ({ ...p, variants: res.variants, selectedVariantId: null, review: null }));
+        setOpenId(res.variants.find(isReady)?.id ?? res.variants[0]?.id ?? null);
+      }
       setRejected(res.rejected);
-      setOpenId(res.variants.find(isReady)?.id ?? res.variants[0]?.id ?? null);
     } catch (e) {
       setErr(String((e as Error).message ?? e));
     } finally {
@@ -67,7 +82,7 @@ export function VariantsScreen({ next, back }: { next: () => void; back: () => v
       <h1 className="heading">Варианты расстановки</h1>
       <p className="lead">Варианты под бриф клиента на одном плане. Каждый проверен на проходы, двери, окна и доступ к мебели. Мебель можно двигать мышью — проверка пересчитывается сразу.</p>
       <div className="actions" style={{ marginTop: 0 }}>
-        <button className="btn" onClick={build} disabled={busy}>{busy ? <><span className="spinner" />Подбираю варианты…</> : project.variants.length ? 'Пересобрать варианты' : 'Построить варианты'}</button>
+        <button className="btn" onClick={() => build()} disabled={busy}>{busy ? <><span className="spinner" />Подбираю варианты…</> : project.variants.length ? 'Пересобрать все варианты' : 'Построить варианты'}</button>
         <label className="check-inline">Стиль плана
           <select value={project.planStyle ?? 'graphite'} onChange={(e) => update((p) => ({ ...p, planStyle: e.target.value as PlanStyle }))} style={{ width: 'auto' }}>
             {(Object.keys(STYLE_NAMES) as PlanStyle[]).filter((k) => k !== 'original' || project.planImage).map((k) => <option key={k} value={k}>{STYLE_NAMES[k]}</option>)}
@@ -86,7 +101,7 @@ export function VariantsScreen({ next, back }: { next: () => void; back: () => v
       )}
       {g.rooms.length > 0 && <QuickFix busy={busy} onRebuild={() => setRebuild((n) => n + 1)} />}
       {project.planImage && <ScalePanel busy={busy} onApplied={() => setRebuild((n) => n + 1)} />}
-      <RoomsPanel onChanged={build} busy={busy} onRescaled={() => setRebuild((n) => n + 1)} />
+      <RoomsPanel onChanged={() => build()} busy={busy} onRescaled={() => setRebuild((n) => n + 1)} />
       <LearningPanel />
       {rejected.length > 0 && (
         <div className="notice">
@@ -104,7 +119,7 @@ export function VariantsScreen({ next, back }: { next: () => void; back: () => v
                 <span className="eyebrow">Вариант {i + 1}{v.approved ? ' · утверждён' : ''}</span>
                 <h2>{v.title}</h2>
                 <p className="small" style={{ margin: 0 }}><b>{v.idea}.</b></p>
-                <StatusBadge v={v} />
+                <StatusBadge v={v} /><div className="actions" style={{ marginTop: 10 }}><button className="btn secondary sm" disabled={busy} onClick={e => { e.stopPropagation(); void build(v); }} aria-label={`Пересобрать вариант ${i + 1}`}>Пересобрать этот вариант</button></div>
                 <ul className="list">{v.benefits.slice(0, 3).map((b) => <li key={b}>{b}</li>)}</ul>
               </div>
             </article>
@@ -137,10 +152,16 @@ function VariantDetail({ v }: { v: Variant }) {
   const g = project.geometry;
   const [items, setItems] = useState<FurnitureItem[]>(v.items);
   const rootRef = useRef<HTMLDivElement>(null);
-  const [selId, setSelId] = useState<string | null>(null);
+  const [selection, setSelection] = useState<string[]>([]);
+  const selId = selection.length === 1 ? selection[0] : null;
+  const setSelId = (id: string | null) => setSelection(id ? [id] : []);
+  const itemsRef = useRef(items);
+  const [history, setHistory] = useState<{ past: FurnitureItem[][]; future: FurnitureItem[][] }>({ past: [], future: [] });
+  const [snapping, setSnapping] = useState(true);
+  const [guides, setGuides] = useState<SnapGuide[]>([]);
   const [hl, setHl] = useState<string[]>([]);
   const svgRef = useRef<SVGSVGElement>(null);
-  const drag = useRef<{ id: string; start: { x: number; y: number }; item: { x: number; y: number } } | null>(null);
+  const drag = useRef<{ mode: 'move' | 'resize'; id: string; ids: string[]; start: { x: number; y: number }; item: FurnitureItem; before: FurnitureItem[]; context: FurnitureSnapContext; handle?: ResizeHandle; moved: boolean } | null>(null);
   const deferred = useDeferredValue(items);
   const result = useMemo(() => validate(g, deferred, rules, project.brief, { expectedHash: v.geometryHash }), [g, deferred, rules, project.brief, v.geometryHash]);
   const errors = result.issues.filter((i) => i.severity === 'error');
@@ -166,43 +187,78 @@ function VariantDetail({ v }: { v: Variant }) {
     pt.x = e.clientX; pt.y = e.clientY;
     return pt.matrixTransform(svg.getScreenCTM()!.inverse());
   };
+  const live = (next: FurnitureItem[]) => { itemsRef.current = next; setItems(next); };
+  const record = (before: FurnitureItem[]) => setHistory(h => ({ past: [...h.past.slice(-99), before], future: [] }));
+  const changeItems = (fn: (list: FurnitureItem[]) => FurnitureItem[]) => { const before = itemsRef.current, next = fn(before); if (JSON.stringify(before) === JSON.stringify(next)) return; record(before); live(next); };
+  const undoItems = () => {
+    if (drag.current) { live(drag.current.before); drag.current = null; setGuides([]); return; }
+    const before = history.past.at(-1); if (!before) return; const currentItems = itemsRef.current;
+    setHistory(h => ({ past: h.past.slice(0, -1), future: [currentItems, ...h.future] })); live(before);
+  };
+  const redoItems = () => { const next = history.future[0]; if (!next) return; const before = itemsRef.current; setHistory(h => ({ past: [...h.past, before], future: h.future.slice(1) })); live(next); };
+  const mmPerPx = () => { const m = svgRef.current?.getScreenCTM(); return m ? 1 / Math.hypot(m.a, m.b) : 20; };
   const onItemDown = (e: RPE<SVGGElement>, it: FurnitureItem) => {
-    e.stopPropagation();
+    if (e.button !== 0) return; e.stopPropagation();
     svgRef.current?.focus({ preventScroll: true });
-    setSelId(it.id);
-    const p = toWorld(e);
-    drag.current = { id: it.id, start: { x: p.x, y: p.y }, item: { x: it.x, y: it.y } };
+    if (e.shiftKey) { setSelection(current => current.includes(it.id) ? current.filter(id => id !== it.id) : [...current, it.id]); return; }
+    const ids = selection.includes(it.id) ? selection : [it.id]; setSelection(ids);
+    const p = toWorld(e), before = itemsRef.current;
+    drag.current = { mode: 'move', id: it.id, ids, start: { x: p.x, y: p.y }, item: it, before, context: furnitureSnapContext(g, before.filter(i => !ids.includes(i.id))), moved: false };
+    svgRef.current?.setPointerCapture(e.pointerId);
+  };
+  const onResizeDown = (e: RPE<SVGRectElement>, handle: ResizeHandle) => {
+    if (e.button !== 0 || !sel) return; e.preventDefault(); e.stopPropagation(); svgRef.current?.focus({ preventScroll: true });
+    const p = toWorld(e), before = itemsRef.current;
+    drag.current = { mode: 'resize', id: sel.id, ids: [sel.id], start: { x: p.x, y: p.y }, item: sel, before, context: furnitureSnapContext(g, before.filter(i => i.id !== sel.id)), handle, moved: false };
     svgRef.current?.setPointerCapture(e.pointerId);
   };
   const onMove = (e: RPE<SVGSVGElement>) => {
-    const d = drag.current;
-    if (!d) return;
-    const p = toWorld(e);
-    const x = Math.round((d.item.x + p.x - d.start.x) / 10) * 10, y = Math.round((d.item.y + p.y - d.start.y) / 10) * 10;
-    setItems((list) => list.map((i) => (i.id === d.id ? { ...i, x, y, movedByManager: true, roomId: g.rooms.find((r) => pointInPolygon({ x, y }, r.polygon))?.id ?? i.roomId } : i)));
+    const d = drag.current; if (!d) return;
+    const p = toWorld(e); if (!d.moved && Math.hypot(p.x - d.start.x, p.y - d.start.y) < 2 * mmPerPx()) return;
+    d.moved = true;
+    const radius = Math.min(120, 10 * mmPerPx()), useSnap = snapping && !e.altKey;
+    let item: FurnitureItem;
+    if (d.mode === 'resize') {
+      const anchor = localToWorld({ x: d.handle!.x * d.item.w / 2, y: d.handle!.y * d.item.d / 2 }, d.item.x, d.item.y, d.item.rot);
+      const target = { x: anchor.x + p.x - d.start.x, y: anchor.y + p.y - d.start.y };
+      const result = useSnap ? snapFurnitureResize(d.item, d.handle!, target, d.context, radius) : { item: resizeFurnitureAtHandle(d.item, d.handle!, target), guides: [] };
+      item = result.item; setGuides(result.guides);
+      live(d.before.map(i => i.id === d.id ? { ...item, roomId: g.rooms.find(r => pointInPolygon(item, r.polygon))?.id ?? i.roomId } : i));
+    } else {
+      const raw = { ...d.item, x: Math.round((d.item.x + p.x - d.start.x) / 10) * 10, y: Math.round((d.item.y + p.y - d.start.y) / 10) * 10 };
+      const result = useSnap ? snapFurnitureMove(raw, d.context, radius) : { item: raw, guides: [] }; item = result.item; setGuides(result.guides);
+      const dx = item.x - d.item.x, dy = item.y - d.item.y;
+      live(d.before.map(i => { if (!d.ids.includes(i.id)) return i; const x = i.x + dx, y = i.y + dy; return { ...i, x, y, movedByManager: true, roomId: g.rooms.find(r => pointInPolygon({ x, y }, r.polygon))?.id ?? i.roomId }; }));
+    }
   };
-  const onUp = () => { drag.current = null; };
+  const onUp = () => { const d = drag.current; if (d?.moved && JSON.stringify(d.before) !== JSON.stringify(itemsRef.current)) record(d.before); drag.current = null; setGuides([]); };
+  const onCancel = () => { if (drag.current) live(drag.current.before); drag.current = null; setGuides([]); };
 
-  const sel = items.find((i) => i.id === selId) ?? null;
-  const patchSel = (p: Partial<FurnitureItem>) => setItems((l) => l.map((i) => (i.id === selId ? { ...i, ...p, movedByManager: true } : i)));
-  const rotate = () => sel && patchSel({ rot: (((sel.rot + 90) % 360) as Rot) });
-  const remove = () => { if (sel) { setItems((l) => l.filter((i) => i.id !== sel.id)); setSelId(null); } };
+  const selectedItems = items.filter(i => selection.includes(i.id));
+  const sel = items.find(i => i.id === selId) ?? null;
+  const commonType = selectedItems.length && selectedItems.every(i => i.type === selectedItems[0].type) ? selectedItems[0].type : null;
+  const patchSel = (p: Partial<FurnitureItem>) => changeItems(l => l.map(i => i.id === selId ? { ...i, ...p, movedByManager: true } : i));
+  const rotate = () => changeItems(l => l.map(i => selection.includes(i.id) ? { ...i, rot: ((i.rot + 90) % 360) as Rot, movedByManager: true } : i));
+  const remove = () => { if (selection.length) { changeItems(l => l.filter(i => !selection.includes(i.id))); setSelId(null); } };
   const addItem = (type: FurnitureType) => {
     const c = CATALOG[type];
     const room = g.rooms.filter((r) => r.type !== 'balcony').sort((a, b) => b.polygon.length - a.polygon.length)[0];
     const ctr = room ? centroid(room.polygon) : { x: 0, y: 0 };
     const size = type === 'dining' ? DINING_PRESETS[project.brief.diningSeats >= 6 ? 6 : 4] : { w: c.w, d: c.d };
     const it: FurnitureItem = { id: uid('f'), type, x: Math.round(ctr.x), y: Math.round(ctr.y), rot: 0, ...size, roomId: room?.id ?? null, ruleId: null, movedByManager: true, seats: type === 'dining' ? project.brief.diningSeats : undefined, modules: type === 'kitchen-run' ? kitchenModules(c.w, true) : undefined };
-    setItems((l) => [...l, it]);
+    changeItems((l) => [...l, it]);
     setSelId(it.id);
   };
 
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
-      if (!ownsShortcut(rootRef.current, e) || e.ctrlKey || e.metaKey || e.altKey) return;
-      if (e.key.toLowerCase() === 'r' && sel) rotate();
-      if ((e.key === 'Delete' || e.key === 'Backspace') && sel) { e.preventDefault(); remove(); }
-      if (e.key === 'Escape') setSelId(null);
+      if (!ownsShortcut(rootRef.current, e)) return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) redoItems(); else undoItems(); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redoItems(); return; }
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key.toLowerCase() === 'r' && selection.length) rotate();
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selection.length) { e.preventDefault(); remove(); }
+      if (e.key === 'Escape') { e.preventDefault(); onCancel(); setSelId(null); }
     };
     window.addEventListener('keydown', k);
     return () => window.removeEventListener('keydown', k);
@@ -220,9 +276,18 @@ function VariantDetail({ v }: { v: Variant }) {
   return (
     <div ref={rootRef} className="detail">
       <div className="card" style={{ padding: 12 }}>
-        <PlanView ref={svgRef} g={g} items={items} issues={result.issues} mode="variant" wallImage={project.planImage} planStyle={project.planStyle} selectedId={selId} viewBox={planBounds(g, 500)}
-          onItemPointerDown={onItemDown} svgProps={{ tabIndex: 0, onPointerMove: onMove, onPointerUp: onUp, onPointerDown: () => { svgRef.current?.focus({ preventScroll: true }); setSelId(null); } }} />
+        <PlanView ref={svgRef} g={g} items={items} issues={result.issues} mode="variant" wallImage={project.planImage} planStyle={project.planStyle} selectedIds={selection} viewBox={planBounds(g, 500)}
+          onItemPointerDown={onItemDown} svgProps={{ tabIndex: 0, onPointerMove: onMove, onPointerUp: onUp, onPointerCancel: onCancel, onLostPointerCapture: () => { if (drag.current) onCancel(); }, onPointerDown: e => { svgRef.current?.focus({ preventScroll: true }); if (!e.shiftKey) setSelId(null); } }}>
+          {guides.map((guide, index) => <path key={index} data-snap-guide={guide.kind} d={`M${guide.a.x} ${guide.a.y}L${guide.b.x} ${guide.b.y}`} stroke="#2f6f8f" strokeWidth={1.5} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" pointerEvents="none" />)}
+          {sel && <FurnitureHandles item={sel} radius={6 * mmPerPx()} onDown={onResizeDown} />}
+        </PlanView>
         <div className="actions" style={{ marginTop: 10 }}>
+          <button className="btn secondary sm" disabled={!history.past.length} onClick={undoItems}>Отменить мебель</button>
+          <button className="btn secondary sm" disabled={!history.future.length} onClick={redoItems}>Повторить мебель</button>
+          <label className="check-inline"><input type="checkbox" checked={snapping} onChange={e => setSnapping(e.target.checked)} />Прилипание мебели</label>
+          {selectedItems.length > 1 && <span className="badge">Выбрано предметов: {selectedItems.length}</span>}
+          {commonType && <label className="field">Тип выбранной мебели<select value={commonType} onChange={e => { const type = e.target.value as FurnitureType; changeItems(list => list.map(i => selection.includes(i.id) ? changeFurnitureType(i, type) : i)); }}>{ADDABLE.map(type => <option key={type} value={type}>{CATALOG[type].name}</option>)}</select></label>}
+          {selectedItems.length > 1 && <><button className="btn secondary sm" onClick={rotate}>Повернуть выбранные (R)</button><button className="btn ghost sm" onClick={remove}>Удалить выбранные предметы</button></>}
           <label className="field" style={{ minWidth: 200 }}><span className="hint">Добавить предмет</span>
             <select value="" onChange={(e) => e.target.value && addItem(e.target.value as FurnitureType)}>
               <option value="">— выберите —</option>
@@ -242,7 +307,7 @@ function VariantDetail({ v }: { v: Variant }) {
             </>
           )}
         </div>
-        <p className="fineprint">Перетаскивайте мебель мышью (шаг 10 мм). Красная рамка — нарушение, жёлтая — замечание.</p>
+        <p className="fineprint">Перетаскивайте мебель; Shift + щелчок — выбрать несколько; маркеры на сторонах и углах — изменить размер. Alt — временно без прилипания. Ctrl+Z — отменить правку мебели. Красная рамка — нарушение, жёлтая — замечание.</p>
       </div>
       <aside className="panel">
         <div className="card">
@@ -382,3 +447,4 @@ function scaleProject(p: Project, f: number): Project {
   // Старые варианты построены на прежнем масштабе — убираем, их пересоберут.
   return { ...p, geometry: { ...g2, approvedHash: geometryHash(g2) }, planImage: p.planImage && { ...p.planImage, widthMm: p.planImage.widthMm * f, heightMm: p.planImage.heightMm * f }, variants: [], selectedVariantId: null, review: null };
 }
+

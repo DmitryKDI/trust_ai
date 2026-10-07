@@ -56,10 +56,28 @@ test('3D: сцена, размеры, материалы, ракурс для к
     const preview = await canvas.evaluate((el: HTMLCanvasElement) => { const c = document.createElement('canvas'); c.width = 900; c.height = Math.round(el.height / el.width * 900); c.getContext('2d')!.drawImage(el, 0, 0, c.width, c.height); return c.toDataURL('image/jpeg', .7); });
     console.log('SCENE_PREVIEW:' + preview);
   }
+  await page.getByLabel('Дети или питомцы', { exact: true }).check();
+  await page.getByRole('button', { name: 'Подобрать под задачи клиента', exact: true }).click();
+  await expect(page.getByLabel('Готовый стиль', { exact: true })).toHaveValue('2');
+  await expect(page.getByLabel('Обоснование', { exact: true })).toHaveValue(/скруглёнными краями/);
+  const styleBefore = await page.getByLabel('Готовый стиль', { exact: true }).inputValue();
+  await page.getByRole('button', { name: 'Случайный стиль', exact: true }).click();
+  await expect(page.getByLabel('Готовый стиль', { exact: true })).not.toHaveValue(styleBefore);
+  const colorBefore = await page.locator('.palette input[type=color]').first().inputValue();
+  await page.getByRole('button', { name: 'Другая сочетающаяся палитра', exact: true }).click();
+  await expect(page.locator('.palette input[type=color]').first()).not.toHaveValue(colorBefore);
+  await expect.poll(async () => (await saved(page))?.concept.clientGoals).toEqual(['family']);
+  expect((await saved(page)).concept.scene3d.assignments.floor).toBe('floor-test');
   await page.getByRole('button', { name: 'Сохранить ракурс', exact: true }).click();
   await expect.poll(async () => (await saved(page)).concept.references.length).toBe(1);
   await page.getByRole('button', { name: /Для клиента/ }).first().click();
   await expect(page.locator('.client .ref img')).toHaveAttribute('src', /^data:image\/png;base64,/);
+  await expect(page.locator('[data-client-3d]')).toHaveCount(3);
+  const renders = await page.locator('[data-client-3d]').evaluateAll(images => images.map(el => ({ src: (el as HTMLImageElement).src, width: (el as HTMLImageElement).naturalWidth })));
+  expect(renders.every(r => r.width > 100)).toBe(true); expect(new Set(renders.map(r => r.src)).size).toBe(3);
+  await page.emulateMedia({ media: 'print' });
+  await expect(page.locator('[data-client-3d]').first()).toBeVisible(); await expect(page.locator('[data-client-3d]').nth(2)).toBeVisible();
+  await page.emulateMedia({ media: 'screen' });
   await page.reload();
   await page.locator('.prow').filter({ hasText: 'Объёмная сцена' }).getByRole('button', { name: 'Открыть', exact: true }).click();
   await page.getByRole('button', { name: /Мини-концепция/ }).first().click();

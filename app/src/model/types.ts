@@ -199,6 +199,7 @@ export interface ConceptReference {
 }
 
 export interface Concept {
+  clientGoals?: string[];
   styleName: string;
   palette: { name: string; hex: string }[];
   materials: string[];

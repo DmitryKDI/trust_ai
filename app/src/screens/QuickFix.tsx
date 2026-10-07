@@ -7,8 +7,11 @@ import { useStore } from '../state/store';
 import { PlanView, planBounds, polyPath } from '../plan/PlanView';
 import { geometryHash, usesRoomWalls } from '../geometry/plan';
 import { dist, pointInPolygon, type BBox } from '../geometry/poly';
-import { addPlanWallChain, orthogonalPoint, resizeOpening, WALL_KINDS } from '../editor/ops';
+import { addPlanWallChain, orthogonalPoint, resizeOpening, snapPolylineClosure, WALL_KINDS } from '../editor/ops';
 import { ownsShortcut } from '../editor/keyboard';
+import { BatchProperties } from '../editor/BatchProperties';
+import { GeometryHandles, WallAngle } from '../editor/GeometryHandles';
+import { deleteSelection, selectElement, type ElementSelection } from '../editor/selection';
 import { SizeInput } from '../editor/SizeInput';
 import { doorAt, mergeRooms, newRoomFromImage, roomFromCorners, splitRoom, type ImageData8 } from '../editor/quickfix';
 import { ROOM_TYPES, roomName } from '../learning/model';
@@ -22,7 +25,7 @@ const TOOLS: { id: Tool; label: string; key: string; hint: string }[] = [
   { id: 'split', key: 'X', label: 'Разрезать', hint: 'Проведите линию по стене между слипшимися помещениями: два щелчка — начало и конец.' },
   { id: 'merge', key: 'M', label: 'Объединить', hint: 'Щёлкните два куска одного помещения (например, разрезанного надписью).' },
   { id: 'door', key: 'D', label: 'Дверь', hint: 'Щёлкните по стене, где должна быть дверь. Снаружи квартиры — входная.' },
-  { id: 'wall', key: 'W', label: 'Стена', hint: 'Щёлкайте углы полилинии; Enter — создать стены; Shift — горизонталь или вертикаль; Esc — отменить.' },
+  { id: 'wall', key: 'W', label: 'Стена', hint: 'Щёлкайте углы полилинии; Enter — создать стены; Shift — горизонталь или вертикаль; щелчок у первой точки — замкнуть; Esc — отменить.' },
 ];
 
 const nameOf = roomName;
@@ -33,7 +36,9 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
   const img = project.planImage ?? null;
   const [tool, setTool] = useState<Tool>('select');
   const [newRoomType, setNewRoomType] = useState<RoomType>('other');
-  const [sel, setSel] = useState<{ kind: 'room' | 'opening' | 'wall'; id: string } | null>(null);
+  const [selection, setSelection] = useState<ElementSelection[]>([]);
+  const sel = selection.length === 1 ? selection[0] : null;
+  const setSel = (value: ElementSelection | null) => setSelection(value ? [value] : []);
   const [wallKind, setWallKind] = useState<WallKind>('unknown');
   const [wallT, setWallT] = useState(100);
   const [doorWidth, setDoorWidth] = useState(800);
@@ -106,14 +111,14 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
       else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
       else if (e.key === 'Escape') { e.preventDefault(); setDraft([]); setFirst(null); setSel(null); }
       else if (e.key === 'Enter' && tool === 'wall') { e.preventDefault(); finishWalls(); }
-      else if ((e.key === 'Delete' || e.key === 'Backspace') && sel) { e.preventDefault(); removeSelected(); }
+      else if ((e.key === 'Delete' || e.key === 'Backspace') && selection.length) { e.preventDefault(); removeSelected(); }
       else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
         const next = TOOLS.find(t => t.key.toLowerCase() === e.key.toLowerCase());
         if (next && !(next.id === 'add' && !img)) { e.preventDefault(); setTool(next.id); setDraft([]); setSel(null); setFirst(null); setMsg(null); }
       }
-      if (e.key === 'Shift' && tool === 'wall' && draft.length && lastPointer.current) setCursor(orthogonalPoint(draft[draft.length - 1], lastPointer.current));
+      if (e.key === 'Shift' && tool === 'wall' && draft.length && lastPointer.current) setCursor(wallPoint(lastPointer.current, true));
     };
-    const up = (e: KeyboardEvent) => { if (e.key === 'Shift') setCursor(lastPointer.current); };
+    const up = (e: KeyboardEvent) => { if (e.key === 'Shift' && lastPointer.current) setCursor(wallPoint(lastPointer.current, false)); };
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
     return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); };
@@ -127,16 +132,17 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
     setMsg(note ?? null);
   };
 
-  const finishWalls = () => {
-    if (draft.length < 2) return;
-    fix(x => addPlanWallChain(x, draft, { thickness: wallT, kind: wallKind }), 'Стены добавлены. Пересоберите мебель. Ctrl+Z — отменить всю полилинию.');
+  const mmPerPx = () => { const svg = svgRef.current; const m = svg?.getScreenCTM(); return m ? 1 / Math.hypot(m.a, m.b) : 20; };
+  const wallPoint = (raw: Pt, shift: boolean) => snapPolylineClosure(raw, draft, 12 * mmPerPx()) ?? (shift && draft.length ? orthogonalPoint(draft[draft.length - 1], raw) : raw);
+  const finishWalls = (points = draft) => {
+    if (points.length < 2) return;
+    fix(x => addPlanWallChain(x, points, { thickness: wallT, kind: wallKind }), 'Стены добавлены. Пересоберите мебель. Ctrl+Z — отменить всю полилинию.');
     setDraft([]); setSel(null); setCursor(null); setTool('select');
   };
 
   const removeSelected = () => {
-    if (!sel) return;
-    const key = ({ wall: 'walls', opening: 'openings', room: 'rooms' } as const)[sel.kind];
-    fix(x => ({ ...x, [key]: x[key].filter(i => i.id !== sel.id) }), 'Объект удалён. Пересоберите варианты.');
+    if (!selection.length) return;
+    fix(x => deleteSelection(x, selection), 'Выбранные элементы удалены. Пересоберите варианты.');
     setSel(null);
   };
 
@@ -147,7 +153,9 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
     if (e.button !== 0 || tool === 'select' || tool === 'merge') return;
     const p = toWorld(e);
     if (tool === 'wall') {
-      const point = e.shiftKey && draft.length ? orthogonalPoint(draft[draft.length - 1], p) : p;
+      const closed = snapPolylineClosure(p, draft, 12 * mmPerPx());
+      if (closed) { finishWalls([...draft, closed]); return; }
+      const point = wallPoint(p, e.shiftKey);
       const q = { x: Math.round(point.x), y: Math.round(point.y) };
       if (draft.length && dist(draft[draft.length - 1], q) < 50) { setMsg('Выберите следующую точку дальше от предыдущей.'); return; }
       setDraft(d => [...d, q]); setMsg(null);
@@ -200,7 +208,7 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
     }
   };
 
-  const onElement = (kind: string, id: string) => {
+  const onElement = (kind: ElementSelection['kind'], id: string, event: React.MouseEvent<SVGElement>) => {
     if (tool === 'merge' && kind === 'room') {
       if (!first) { setFirst(id); setMsg('Теперь щёлкните вторую часть.'); return; }
       if (first === id) return;
@@ -218,7 +226,7 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
       setTool('select');
       return;
     }
-    if (tool === 'select' && (kind === 'room' || kind === 'opening' || kind === 'wall')) { setSel({ kind, id }); setMsg(null); }
+    if (tool === 'select') { setSelection(current => selectElement(current, { kind, id }, event.shiftKey)); setMsg(null); }
   };
 
   const room = sel?.kind === 'room' ? g.rooms.find((r) => r.id === sel.id) ?? null : null;
@@ -232,7 +240,7 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
   return (
     <details ref={rootRef} className="card" style={{ marginTop: 14 }} open>
       <summary style={{ margin: 0 }}>Быстрая правка плана</summary>
-      <p className="muted small">Проверьте план поверх оригинала. Ошибки распознавания правятся щелчком; Enter — завершить стены; Esc — отменить рисование; Delete — удалить выбранный объект; Ctrl+Z — отменить.</p>
+      <p className="muted small">Проверьте план поверх оригинала. Ошибки распознавания правятся щелчком; Enter — завершить стены; Esc — отменить рисование; Shift + щелчок — выбрать несколько; Delete — удалить выбранные; Ctrl+Z — отменить.</p>
       <div className="toolbar" role="toolbar" aria-label="Быстрая правка">
         {TOOLS.map((t) => (
           <button key={t.id} className={`tool ${tool === t.id ? 'on' : ''}`} title={`${t.hint} (${t.key})`} disabled={t.id === 'add' && !img}
@@ -246,7 +254,7 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
       {tool === 'wall' && <div className="fields">
         <label className="field">Тип новой стены<select value={wallKind} onChange={e => setWallKind(e.target.value as WallKind)}>{WALL_KINDS.map(([t, label]) => <option key={t} value={t}>{label}</option>)}</select></label>
         <label className="field">Толщина новой стены, мм<input type="number" min="30" value={wallT} onChange={e => setWallT(Math.max(30, Number(e.target.value) || 100))} /></label>
-        <div className="actions"><button className="btn sm" disabled={draft.length < 2} onClick={finishWalls}>Завершить стены (Enter)</button><button className="btn ghost sm" disabled={!draft.length} onClick={() => setDraft([])}>Отменить рисование (Esc)</button></div>
+        <div className="actions"><button className="btn sm" disabled={draft.length < 2} onClick={() => finishWalls()}>Завершить стены (Enter)</button><button className="btn ghost sm" disabled={!draft.length} onClick={() => setDraft([])}>Отменить рисование (Esc)</button></div>
       </div>}
       {tool === 'door' && <div className="fields">
         <SizeInput label="Ширина новой двери, мм" value={doorWidth} min={300} max={6000} onCommit={setDoorWidth} />
@@ -254,10 +262,10 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
       </div>}
       {g.rooms.length > 0 && (g.walls.length > 0 || tool === 'wall') && <label className="check-inline"><input type="checkbox" checked={usesRoomWalls(g)} onChange={e => fix(x => ({ ...x, wallMode: e.target.checked ? 'rooms' : 'explicit' }), 'Основа стен изменена. Пересоберите варианты.')} />Использовать границы зон как основу стен</label>}
       <div className="canvas-wrap qf-canvas">
-        <PlanView ref={svgRef} g={g} mode="editor" viewBox={vb} selectedId={sel?.id} labelScale={1.8}
+        <PlanView ref={svgRef} g={g} mode="editor" viewBox={vb} selectedIds={selection.map(s => s.id)} labelScale={1.8}
           underlay={img ? { url: img.url, widthMm: img.widthMm, heightMm: img.heightMm, opacity: 0.45 } : null}
           onElementClick={onElement}
-          svgProps={{ tabIndex: 0, onPointerDown: onDown, onPointerMove: e => { const p = toWorld(e); lastPointer.current = p; setCursor(e.shiftKey && tool === 'wall' && draft.length ? orthogonalPoint(draft[draft.length - 1], p) : p); }, style: { cursor: tool === 'select' || tool === 'merge' ? 'pointer' : 'crosshair' } }}>
+          svgProps={{ tabIndex: 0, onPointerDown: onDown, onPointerMove: e => { const p = toWorld(e); lastPointer.current = p; setCursor(tool === 'wall' ? wallPoint(p, e.shiftKey) : p); }, style: { cursor: tool === 'select' || tool === 'merge' ? 'pointer' : 'crosshair' } }}>
           {tool === 'wall' && draft.length > 1 && <path data-wall-draft="true" d={'M' + draft.map(q => `${q.x} ${q.y}`).join('L')} fill="none" stroke="#d2691e" strokeWidth={2} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
           {tool === 'wall' && draft.length > 0 && cursor && <path data-wall-preview="true" d={`M${draft[draft.length - 1].x} ${draft[draft.length - 1].y}L${cursor.x} ${cursor.y}`} stroke="#d2691e" strokeWidth={2} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
           {room && <path d={polyPath(room.polygon)} fill="rgba(210,105,30,.12)" stroke="#d2691e" strokeWidth={3} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
@@ -265,10 +273,14 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
           {opening && <path d={`M${opening.a.x} ${opening.a.y}L${opening.b.x} ${opening.b.y}`} stroke="#d2691e" strokeWidth={8} strokeLinecap="round" vectorEffect="non-scaling-stroke" pointerEvents="none" />}
           {tool === 'rect' && draft.length === 1 && <circle cx={draft[0].x} cy={draft[0].y} r={(vb.maxX - vb.minX) / 120} fill="none" stroke="#d2691e" strokeWidth={2} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
           {draft.map((q, i) => <circle key={i} cx={q.x} cy={q.y} r={(vb.maxX - vb.minX) / 150} fill="#d2691e" pointerEvents="none" />)}
+          {tool === 'select' && <GeometryHandles key={sel?.id ?? 'none'} geometry={g} selection={sel} radius={6 * mmPerPx()} onChange={fix} onError={setMsg} />}
+          {tool === 'wall' && draft.length >= 3 && cursor && dist(cursor, draft[0]) < 1 && <circle data-closure-snap="true" cx={draft[0].x} cy={draft[0].y} r={10 * mmPerPx()} fill="none" stroke="#2f6f8f" strokeWidth={2} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
         </PlanView>
         <div className="canvas-hint">{msg ?? TOOLS.find((t) => t.id === tool)!.hint}</div>
       </div>
 
+      <BatchProperties geometry={g} selection={selection} onChange={fix} onDelete={removeSelected} />
+      {sel && <><WallAngle geometry={g} selection={sel} onChange={fix} onError={setMsg} /><p className="hint">Перетаскивайте точки на углах выбранной фигуры. Shift — ортогональ; Alt — без привязки.</p></>}
       {room && (
         <div className="qf-actions">
           <div className="small"><b>{room.name}</b> — назначение:</div>
@@ -321,3 +333,4 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
     </details>
   );
 }
+

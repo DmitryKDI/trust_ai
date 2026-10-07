@@ -136,7 +136,12 @@ export function openingFromClicks(g: PlanGeometry, p1: Pt, p2: Pt, type: 'door' 
   };
 }
 
-export type SnapKind = 'geometry' | 'vector-point' | 'vector-line' | 'ortho' | 'none';
+export type SnapKind = 'geometry' | 'vector-point' | 'vector-line' | 'ortho' | 'closure' | 'none';
+
+/** Замыкание имеет приоритет над ортогональю и другими узлами. */
+export function snapPolylineClosure(raw: Pt, points: Pt[], radiusMm: number): Pt | null {
+  return points.length >= 3 && dist(raw, points[0]) <= radiusMm ? { ...points[0] } : null;
+}
 
 export interface SnapResult { p: Pt; kind: SnapKind }
 

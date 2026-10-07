@@ -25,9 +25,10 @@ export interface PlanViewProps {
   mode: PlanMode;
   underlay?: Underlay | null;
   selectedId?: string | null;
+  selectedIds?: readonly string[];
   viewBox?: BBox | null;
   onItemPointerDown?: (e: RPE<SVGGElement>, it: FurnitureItem) => void;
-  onElementClick?: (kind: 'wall' | 'opening' | 'fixed' | 'room' | 'wet', id: string) => void;
+  onElementClick?: (kind: 'wall' | 'opening' | 'fixed' | 'room' | 'wet', id: string, event: React.MouseEvent<SVGElement>) => void;
   children?: ReactNode;
   className?: string;
   /** Множитель размера подписей помещений (быстрая правка на телефоне — крупнее). */
@@ -55,6 +56,7 @@ const WALL_COLORS = { bearing: '#3d4649', partition: '#7d878a', unknown: '#56606
 
 export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanView(p, ref) {
   const { g, items = [], issues = [], mode, underlay, selectedId } = p;
+  const selected = new Set([...(p.selectedIds ?? []), ...(selectedId ? [selectedId] : [])]);
   const unknownPatternId = 'wallUnknown' + useId().replace(/:/g, '');
   const vb = p.viewBox ?? planBounds(g);
   const walls = useMemo(() => wallsGeom(g), [g]);
@@ -92,25 +94,25 @@ export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanVi
 
       {/* Помещения */}
       {g.rooms.map((r) => (
-        <path key={r.id} d={polyPath(r.polygon)} fill={orig ? 'none' : r.type === 'balcony' ? '#f1f2ee' : editor ? 'rgba(255,255,255,.55)' : pal.floor}
-          stroke={editor ? (r.verifiedByManager ? '#9fb0a6' : '#c9a36b') : 'none'} strokeWidth={1} strokeDasharray={editor && !r.verifiedByManager ? '6 4' : undefined} vectorEffect="non-scaling-stroke"
-          onClick={() => p.onElementClick?.('room', r.id)} />
+        <path key={r.id} data-room-id={r.id} data-selected={selected.has(r.id)} d={polyPath(r.polygon)} fill={orig ? 'none' : r.type === 'balcony' ? '#f1f2ee' : editor ? 'rgba(255,255,255,.55)' : pal.floor}
+          stroke={selected.has(r.id) ? '#d2691e' : editor ? (r.verifiedByManager ? '#9fb0a6' : '#c9a36b') : 'none'} strokeWidth={selected.has(r.id) ? 3 : 1} strokeDasharray={editor && !r.verifiedByManager ? '6 4' : undefined} vectorEffect="non-scaling-stroke"
+          onClick={e => p.onElementClick?.('room', r.id, e)} />
       ))}
       {!orig && wetRooms.map((r) => <path key={'wet' + r.id} d={polyPath(r.polygon)} fill="url(#tile)" opacity={editor ? 0.6 : 1} pointerEvents="none" />)}
-      {g.wetZones.map((z) => <path key={z.id} d={polyPath(z.polygon)} fill="url(#tile)" stroke="#9fb7bd" strokeWidth={1} vectorEffect="non-scaling-stroke" onClick={() => p.onElementClick?.('wet', z.id)} />)}
+      {g.wetZones.map((z) => <path key={z.id} data-wet-id={z.id} data-selected={selected.has(z.id)} d={polyPath(z.polygon)} fill="url(#tile)" stroke={selected.has(z.id) ? '#d2691e' : '#9fb7bd'} strokeWidth={selected.has(z.id) ? 3 : 1} vectorEffect="non-scaling-stroke" onClick={e => p.onElementClick?.('wet', z.id, e)} />)}
       {!orig && g.fixed.map((f) => (
-        <path key={f.id} d={polyPath(f.polygon)} onClick={() => p.onElementClick?.('fixed', f.id)}
+        <path key={f.id} data-fixed-id={f.id} data-selected={selected.has(f.id)} d={polyPath(f.polygon)} onClick={e => p.onElementClick?.('fixed', f.id, e)}
           fill={f.kind === 'void' ? 'url(#hatch)' : f.kind === 'radiator' ? '#dfeaec' : f.kind === 'riser' ? '#f3d9c4' : '#d9dedc'}
-          stroke={f.kind === 'riser' ? '#c8773f' : f.kind === 'radiator' ? '#7fa3a8' : '#8a9492'} strokeWidth={1} vectorEffect="non-scaling-stroke"
+          stroke={selected.has(f.id) ? '#d2691e' : f.kind === 'riser' ? '#c8773f' : f.kind === 'radiator' ? '#7fa3a8' : '#8a9492'} strokeWidth={selected.has(f.id) ? 3 : 1} vectorEffect="non-scaling-stroke"
           strokeDasharray={editor && !f.verifiedByManager ? '5 4' : undefined} opacity={mode === 'client' && f.kind === 'void' ? 0.6 : 1} />
       ))}
 
       {/* Стены */}
       {editor
         ? g.walls.map((w) => (
-            <path key={w.id} data-wall-id={w.id} data-wall-kind={w.kind} d={polyPath(wallPolygon(w))} fill={w.kind === 'unknown' ? `url(#${unknownPatternId})` : WALL_COLORS[w.kind]} fillOpacity={underlay ? 0.55 : 0.9}
-              stroke={w.id === selectedId ? '#d2691e' : w.verifiedByManager ? '#2f3739' : '#c9a36b'} strokeWidth={w.id === selectedId ? 2.5 : 1}
-              strokeDasharray={w.verifiedByManager ? undefined : '6 4'} vectorEffect="non-scaling-stroke" onClick={() => p.onElementClick?.('wall', w.id)} />
+            <path key={w.id} data-wall-id={w.id} data-wall-kind={w.kind} data-selected={selected.has(w.id)} d={polyPath(wallPolygon(w))} fill={w.kind === 'unknown' ? `url(#${unknownPatternId})` : WALL_COLORS[w.kind]} fillOpacity={underlay ? 0.55 : 0.9}
+              stroke={selected.has(w.id) ? '#d2691e' : w.verifiedByManager ? '#2f3739' : '#c9a36b'} strokeWidth={selected.has(w.id) ? 2.5 : 1}
+              strokeDasharray={w.verifiedByManager ? undefined : '6 4'} vectorEffect="non-scaling-stroke" onClick={e => p.onElementClick?.('wall', w.id, e)} />
           ))
         : !orig && <path data-layer="wall-base" data-room-walls={!!band} d={geomPath(displayedWalls)} fill={pal.wall} fillRule="evenodd" />}
       {!editor && typedWalls.filter(({ wall }) => !orig || wall.source === 'manual').map(({ wall: w, geom }) => <path key={'typed' + w.id}
@@ -119,12 +121,12 @@ export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanVi
 
       {/* Проёмы */}
       {!orig && g.openings.map((o) => {
-        const sel = o.id === selectedId;
+        const sel = selected.has(o.id);
         if (o.type === 'window') {
           const dx = o.b.x - o.a.x, dy = o.b.y - o.a.y, l = Math.hypot(dx, dy) || 1;
           const nx = (dy / l) * o.thickness * 0.18, ny = (-dx / l) * o.thickness * 0.18;
           return (
-            <g key={o.id} onClick={() => p.onElementClick?.('opening', o.id)}>
+            <g key={o.id} data-opening-id={o.id} data-selected={sel} onClick={e => p.onElementClick?.('opening', o.id, e)}>
               <path d={polyPath([{ x: o.a.x + nx * 2.7, y: o.a.y + ny * 2.7 }, { x: o.b.x + nx * 2.7, y: o.b.y + ny * 2.7 }, { x: o.b.x - nx * 2.7, y: o.b.y - ny * 2.7 }, { x: o.a.x - nx * 2.7, y: o.a.y - ny * 2.7 }])} fill="#ffffff" stroke={sel ? '#d2691e' : '#8fb3bf'} strokeWidth={sel ? 2.5 : 1} vectorEffect="non-scaling-stroke" />
               <path d={`M${o.a.x + nx} ${o.a.y + ny}L${o.b.x + nx} ${o.b.y + ny}M${o.a.x - nx} ${o.a.y - ny}L${o.b.x - nx} ${o.b.y - ny}`} stroke="#8fb3bf" strokeWidth={1} vectorEffect="non-scaling-stroke" />
             </g>
@@ -132,7 +134,7 @@ export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanVi
         }
         const swings = doorSwingPolygons(o);
         return (
-          <g key={o.id} data-opening-id={o.id} data-door-leaves={o.leaves ?? 1} onClick={() => p.onElementClick?.('opening', o.id)}>
+          <g key={o.id} data-opening-id={o.id} data-door-leaves={o.leaves ?? 1} data-selected={sel} onClick={e => p.onElementClick?.('opening', o.id, e)}>
             <path d={polyPath(segmentRectLocal(o.a, o.b, o.thickness))} fill={editor ? 'rgba(255,255,255,.9)' : '#ffffff'} stroke={sel ? '#d2691e' : 'none'} strokeWidth={2.5} vectorEffect="non-scaling-stroke" />
             {swings.map((sw, i) => <g key={i} data-door-leaf={i + 1}>
               <path d={'M' + sw.slice(1).map(q => `${q.x} ${q.y}`).join('L')} fill="none" stroke="#98a4a7" strokeWidth={1} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />
@@ -155,9 +157,9 @@ export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanVi
 
       {/* Мебель */}
       {items.map((it) => {
-        const err = errIds.has(it.id), warn = warnIds.has(it.id), sel = it.id === selectedId;
+        const err = errIds.has(it.id), warn = warnIds.has(it.id), sel = selected.has(it.id);
         return (
-          <g key={it.id} data-item-id={it.id} data-item-type={it.type} transform={`translate(${it.x} ${it.y}) rotate(${it.rot})`} className={p.onItemPointerDown ? 'item-drag' : undefined}
+          <g key={it.id} data-item-id={it.id} data-item-type={it.type} data-selected={sel} transform={`translate(${it.x} ${it.y}) rotate(${it.rot})`} className={p.onItemPointerDown ? 'item-drag' : undefined}
             onPointerDown={p.onItemPointerDown ? (e) => p.onItemPointerDown!(e, it) : undefined}>
             <FurnitureSymbol it={it} pal={pal.furniture} />
             {(err || warn || sel) && mode !== 'client' && (

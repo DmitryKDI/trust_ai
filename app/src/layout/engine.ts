@@ -33,6 +33,7 @@ export interface EngineInput {
   /** Размещения ключевых предметов из уже построенных вариантов — для разнообразия. */
   avoid?: Placement[];
   beamWidth?: number;
+  seed?: number;
 }
 
 interface State {
@@ -318,6 +319,8 @@ export function runEngine(input: EngineInput): EngineResult {
   const beam = input.beamWidth ?? 5;
   const avoid = input.avoid ?? [];
   const localInput = { ctx, rules, brief };
+  let seed = input.seed ?? 0;
+  const jitter = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
 
   let states: State[] = [{ items: [], placements: [], skipped: [], score: 0, incomplete: false }];
 
@@ -346,7 +349,9 @@ export function runEngine(input: EngineInput): EngineResult {
                 mode === 'wall' ? wallCandidates(rule, info, size, rules, st, anchor, avoid)
                 : mode === 'free' ? freeCandidates(rule, info, size, st, anchor, avoid)
                 : attachCandidates(rule, info, size, anchor!);
-              const ok = cands.filter((c) => rasterOk(st, dyn, c.item, room, rules, brief)).sort((a, b) => b.score - a.score);
+              const ok = cands.filter((c) => rasterOk(st, dyn, c.item, room, rules, brief));
+              if (input.seed) for (const c of ok) c.score += jitter() * 1.5;
+              ok.sort((a, b) => b.score - a.score);
               const valid: Candidate[] = [];
               let tries = 0;
               for (const c of ok) {

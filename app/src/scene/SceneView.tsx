@@ -1,26 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { FurnitureItem, PlanGeometry } from '../model/types';
+import type { Concept, FurnitureItem, PlanGeometry } from '../model/types';
 import { buildScene } from './build';
 import { createSceneRenderer, DEFAULT_CAMERA, type Camera } from './renderer';
-import { MATERIAL_SLOTS, type MaterialCatalog, type MaterialSlot, type SceneMaterial, type SceneSettings } from './types';
+import { type MaterialCatalog, type SceneSettings } from './types';
+import { sceneMaterials } from './materials';
 import './scene.css';
 
-export function SceneView({ geometry, items, settings, catalog, title, onSnapshot }: {
+export function SceneView({ geometry, items, settings, catalog, palette, title, onSnapshot }: {
   geometry: PlanGeometry; items: FurnitureItem[]; settings: SceneSettings; catalog: MaterialCatalog;
-  title: string; onSnapshot?: (url: string) => void;
+  palette?: Concept['palette']; title: string; onSnapshot?: (url: string) => void;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null), renderer = useRef<ReturnType<typeof createSceneRenderer> | null>(null);
   const cameraRef = useRef<Camera>(DEFAULT_CAMERA), drag = useRef<{ x: number; y: number } | null>(null);
   const [camera, setCamera] = useState<Camera>(DEFAULT_CAMERA), [error, setError] = useState(''), [warning, setWarning] = useState(''), [ready, setReady] = useState(false), [epoch, setEpoch] = useState(0);
   const model = useMemo(() => buildScene(geometry, items, settings), [geometry, items, settings]);
-  const materials = useMemo(() => {
-    const out: Partial<Record<MaterialSlot, SceneMaterial>> = {};
-    for (const slot of MATERIAL_SLOTS) { const m = catalog.materials.find(m => m.id === settings.assignments[slot] && m.category === slot); if (m) out[slot] = m; }
-    return out;
-  }, [catalog, settings.assignments]);
+  const materials = useMemo(() => sceneMaterials(catalog, settings, palette), [catalog, settings.assignments, palette]);
   useEffect(() => {
     const el = canvas.current!; setError(''); setWarning(''); setReady(false);
-    try { renderer.current = createSceneRenderer(el, model, materials, setWarning); renderer.current.draw(cameraRef.current); setReady(true); }
+    try { renderer.current = createSceneRenderer(el, model, materials, setWarning); renderer.current.draw(cameraRef.current); const instance = renderer.current; void instance.ready.then(() => { if (renderer.current === instance && !el.getContext('webgl')?.isContextLost()) setReady(true); }); }
     catch (e) { setError(e instanceof Error ? e.message : 'Не удалось открыть 3D.'); }
     const observer = new ResizeObserver(() => renderer.current?.draw(cameraRef.current)); observer.observe(el);
     const lost = (e: Event) => { e.preventDefault(); setReady(false); setError('Отображение 3D приостановлено браузером. Ожидаем восстановление.'); };

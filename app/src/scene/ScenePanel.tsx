@@ -62,7 +62,7 @@ export function ScenePanel() {
       <label className="check-inline"><input type="checkbox" checked={settings.fullWalls} onChange={e => patch({ fullWalls: e.target.checked })} />Полная высота стен</label>
       <label className="check-inline"><input type="checkbox" checked={settings.showCeiling} onChange={e => patch({ showCeiling: e.target.checked })} />Показать потолок</label>
     </div>
-    {project.geometry.rooms.length || project.geometry.walls.length ? <SceneView geometry={project.geometry} items={variant?.items ?? []} settings={settings} catalog={catalog} title={variant?.title ?? 'План без мебели'} onSnapshot={url => {
+    {project.geometry.rooms.length || project.geometry.walls.length ? <SceneView geometry={project.geometry} items={variant?.items ?? []} settings={settings} catalog={catalog} palette={project.concept.palette} title={variant?.title ?? 'План без мебели'} onSnapshot={url => {
       setSnapshotNote('');
       if (project.concept.references.length >= 4) { setSnapshotNote('Уже сохранено четыре изображения. Уберите одно в разделе изображений ниже.'); return; }
       update(p => ({ ...p, concept: { ...p.concept, references: [...p.concept.references.slice(0, 3), { id: uid('view'), url, caption: `3D · ${variant?.title ?? 'План без мебели'}`, sourceName: 'Траст ремонт · объёмная схема по планировке', sourceUrl: '', kind: 'illustration' }] } }));
