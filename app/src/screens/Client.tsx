@@ -18,12 +18,12 @@ const mln = (v: number) => (v / 1e6).toFixed(2).replace('.', ',');
 export function ClientScreen({ back }: { back: () => void }) {
   const { project, rules } = useStore();
   const settings = useMemo(() => ({ ...sceneSettings(project.concept.scene3d), fullWalls: false, showCeiling: false }), [project.concept.scene3d]);
-  const v = project.variants.find((x) => x.id === project.selectedVariantId && x.approved);
+  const v = project.variants.find((x) => x.id === project.selectedVariantId && x.approved && isReady(x) && x.geometryHash === geometryHash(project.geometry));
   if (!v)
     return (
       <div className="view">
         <h1 className="heading">Страница для клиента</h1>
-        <div className="notice err">Нет утверждённого варианта. Выберите и утвердите вариант на шаге «Варианты».</div>
+        <div className="notice err">Нет актуального утверждённого варианта. Пересоберите и утвердите вариант на шаге «Варианты».</div>
         <div className="actions"><button className="btn" onClick={back}>К вариантам</button></div>
       </div>
     );

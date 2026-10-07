@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { PlanGeometry, Pt } from '../model/types';
 import { dist } from '../geometry/poly';
 import { polyPath } from '../plan/PlanView';
@@ -7,13 +7,18 @@ import { orthogonalPoint } from './ops';
 
 export function GeometryHandles({ geometry, selection, radius, onChange, onError }: { geometry: PlanGeometry; selection: ElementSelection | null; radius: number; onChange: (fn: (g: PlanGeometry) => PlanGeometry) => void; onError: (message: string) => void }) {
   const [preview, setPreview] = useState<Pt[] | null>(null);
-  const drag = useRef<{ original: PlanGeometry; sel: ElementSelection; index: number; point: Pt; before: Pt[] } | null>(null);
+  const drag = useRef<{ original: PlanGeometry; sel: ElementSelection; index: number; point: Pt; before: Pt[]; start: Pt; moved: boolean } | null>(null);
+  useEffect(() => {
+    const cancel = (e: KeyboardEvent) => { if (!drag.current || !(e.key === 'Escape' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z'))) return; e.preventDefault(); drag.current = null; setPreview(null); };
+    window.addEventListener('keydown', cancel); return () => window.removeEventListener('keydown', cancel);
+  }, []);
   const vertices = selection ? geometryVertices(geometry, selection) : [];
   const move = (e: React.PointerEvent<SVGCircleElement>) => {
     const d = drag.current; if (!d) return;
     e.stopPropagation();
     const svg = e.currentTarget.ownerSVGElement!, pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
     const raw = pt.matrixTransform(svg.getScreenCTM()!.inverse());
+    if (!d.moved && dist(raw, d.start) < radius / 3) return; d.moved = true;
     let p: Pt = { x: Math.round(raw.x / 10) * 10, y: Math.round(raw.y / 10) * 10 };
     if (e.shiftKey) p = orthogonalPoint(d.before[(d.index + d.before.length - 1) % d.before.length], p);
     if (!e.altKey && !e.shiftKey) {
@@ -27,9 +32,9 @@ export function GeometryHandles({ geometry, selection, radius, onChange, onError
     {preview && <path d={selection?.kind === 'wall' || selection?.kind === 'opening' ? `M${preview[0].x} ${preview[0].y}L${preview[1].x} ${preview[1].y}` : polyPath(preview)} fill="none" stroke="#d2691e" strokeWidth={2} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
     {(preview ?? vertices).map((p, index) => <circle key={index} data-vertex-handle={index} cx={p.x} cy={p.y} r={radius} fill="#fff" stroke="#d2691e" strokeWidth={2} vectorEffect="non-scaling-stroke" style={{ cursor: 'move' }}
       onClick={e => e.stopPropagation()}
-      onPointerDown={e => { e.preventDefault(); e.stopPropagation(); if (!selection) return; e.currentTarget.ownerSVGElement?.focus({ preventScroll: true }); e.currentTarget.setPointerCapture(e.pointerId); drag.current = { original: geometry, sel: selection, index, point: p, before: vertices }; }}
+      onPointerDown={e => { e.preventDefault(); e.stopPropagation(); if (!selection) return; e.currentTarget.ownerSVGElement?.focus({ preventScroll: true }); e.currentTarget.setPointerCapture(e.pointerId); drag.current = { original: geometry, sel: selection, index, point: p, before: vertices, start: (() => { const svg = e.currentTarget.ownerSVGElement!, pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY; return pt.matrixTransform(svg.getScreenCTM()!.inverse()); })(), moved: false }; }}
       onPointerMove={move}
-      onPointerUp={e => { e.stopPropagation(); move(e); const d = drag.current; drag.current = null; setPreview(null); if (!d) return; try { const next = moveGeometryVertex(d.original, d.sel, d.index, d.point); if (next !== d.original) onChange(() => next); } catch (err) { onError(err instanceof Error ? err.message : 'Не удалось изменить угол.'); } }}
+      onPointerUp={e => { e.stopPropagation(); move(e); const d = drag.current; drag.current = null; setPreview(null); if (!d?.moved) return; try { const next = moveGeometryVertex(d.original, d.sel, d.index, d.point); if (next !== d.original) onChange(() => next); } catch (err) { onError(err instanceof Error ? err.message : 'Не удалось изменить угол.'); } }}
       onPointerCancel={e => { e.stopPropagation(); drag.current = null; setPreview(null); }} onLostPointerCapture={() => { if (drag.current) { drag.current = null; setPreview(null); } }} />)}
   </g>;
 }

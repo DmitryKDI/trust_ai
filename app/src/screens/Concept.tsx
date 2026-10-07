@@ -81,7 +81,7 @@ export function ConceptScreen({ next }: { next: () => void }) {
             </div>
           ))}
           {c.materials.length < 5 && <button className="btn secondary sm" onClick={() => set({ materials: [...c.materials, ''] })}>Добавить материал</button>}
-          <label className="field" style={{ marginTop: 14 }}>Обоснование<textarea value={c.rationale} onChange={(e) => set({ rationale: e.target.value })} /></label>
+          <label className="field" style={{ marginTop: 14 }}>Обоснование<textarea aria-label="Обоснование" value={c.rationale} onChange={(e) => set({ rationale: e.target.value })} /></label>
         </section>
         <section className="card">
           <h3>Выбранный вариант</h3>

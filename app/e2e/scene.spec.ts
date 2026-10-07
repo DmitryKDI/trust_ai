@@ -75,6 +75,8 @@ test('3D: сцена, размеры, материалы, ракурс для к
   await expect(page.locator('[data-client-3d]')).toHaveCount(3);
   const renders = await page.locator('[data-client-3d]').evaluateAll(images => images.map(el => ({ src: (el as HTMLImageElement).src, width: (el as HTMLImageElement).naturalWidth })));
   expect(renders.every(r => r.width > 100)).toBe(true); expect(new Set(renders.map(r => r.src)).size).toBe(3);
+  console.log('CLIENT_PREVIEW:' + (await page.locator('.client-variants').screenshot({ type: 'jpeg', quality: 60 })).toString('base64'));
+  await expect(page.locator('.client .client-variant')).toHaveCount(3);
   await page.emulateMedia({ media: 'print' });
   await expect(page.locator('[data-client-3d]').first()).toBeVisible(); await expect(page.locator('[data-client-3d]').nth(2)).toBeVisible();
   await page.emulateMedia({ media: 'screen' });
