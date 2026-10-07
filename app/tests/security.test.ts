@@ -3,7 +3,8 @@ import { beforeEach, expect, it } from 'vitest';
 import { newProject } from '../src/model/defaults';
 import { twoRoom } from './fixtures/synthetic';
 import { checkedGeometry, checkedProject, parseSafeJson, safeSourceUrl } from '../src/storage/validate';
-import { getFile, getProject, importProject, putFile, saveProject } from '../src/storage/db';
+import { getFile, getProject, importProject, importLearning, listLearnedPlans, putFile, saveProject } from '../src/storage/db';
+import { checkedPlan } from '../src/learning/model';
 import { Autosave } from '../src/state/autosave';
 import { checkedRasterSize } from '../src/pdf/limits';
 import { Grid } from '../src/validate/grid';
@@ -60,6 +61,12 @@ it('rejects unsafe grid rules and huge allocations before allocating memory', ()
   expect(() => new Grid({ minX: 0, minY: 0, maxX: 1e6, maxY: 1e6 }, 25)).toThrow();
   expect(() => checkedRasterSize(1e6, 1e6)).toThrow(); expect(() => checkedRasterSize(100, NaN)).toThrow();
   expect(() => checkedRasterSize(2500, 3500)).not.toThrow();
+});
+it('learning import rejects malformed metadata before saving any examples', async () => {
+  const plan = checkedPlan('1'.repeat(64) + ':1', twoRoom());
+  const bad = structuredClone(plan); bad.key = '2'.repeat(64) + ':1'; (bad.geometry.rooms[0] as any).name = { html: '<script>' };
+  await expect(importLearning(JSON.stringify({ format: 'trust-planner-learning', version: 1, plans: [plan, bad] }))).rejects.toThrow();
+  expect(await listLearnedPlans()).toEqual([]);
 });
 it('autosave retains failed edits and reports failure until retry succeeds', async () => {
   const states: [boolean, string | null][] = []; let fail = true; let saved: any;

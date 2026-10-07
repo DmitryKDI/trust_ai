@@ -1,7 +1,7 @@
 // Хранение проектов и исходных файлов в IndexedDB браузера + резервная копия в JSON.
 import type { Project } from '../model/types';
 import { parseLearning, type LearnedPlan, type LearningBackup } from '../learning/model';
-import { checkedProject, parseSafeJson, MAX_DOCUMENT_BYTES } from './validate';
+import { checkedGeometry, checkedProject, parseSafeJson, MAX_DOCUMENT_BYTES } from './validate';
 
 const DB = 'trust-planner';
 const VERSION = 2;
@@ -44,6 +44,7 @@ export const forgetLearnedPlan = (key: string) => tx('learning', 'readwrite', s 
 export const clearLearning = () => tx('learning', 'readwrite', s => { s.clear(); });
 export async function saveLearnedPlan(plan: LearnedPlan) {
   const checked = parseLearning(JSON.stringify({ format: 'trust-planner-learning', version: 1, plans: [plan] }))[0];
+  checkedGeometry(checked.geometry);
   if (new TextEncoder().encode(JSON.stringify(checked)).length + 81 > 5_000_000) throw new Error('Пример обучения больше 5 МБ.');
   await tx('learning', 'readwrite', s => {
     const request = s.getAll();
@@ -69,6 +70,7 @@ export async function learningBackup(): Promise<Blob> {
 }
 export async function importLearning(text: string) {
   const plans = parseLearning(text); // Validate the complete batch before writing any examples.
+  for (const plan of plans) checkedGeometry(plan.geometry);
   for (const plan of plans) await saveLearnedPlan(plan);
 }
 
@@ -112,6 +114,7 @@ export async function importProject(text: string): Promise<Project> {
   if (!data || data.format !== 'trust-planner-project' || data.version !== 1) throw new Error('Это не поддерживаемый файл проекта планировщика');
   const project = checkedProject(data.project);
   const learning = data.learning ? parseLearning(JSON.stringify(data.learning)) : [];
+  for (const plan of learning) checkedGeometry(plan.geometry);
   if (!data.files || typeof data.files !== 'object' || Array.isArray(data.files)) throw new Error('В резервной копии отсутствует список файлов.');
   const files = new Map<string, Blob>();
   for (const [id, f] of Object.entries(data.files)) {

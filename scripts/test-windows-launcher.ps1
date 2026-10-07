@@ -90,6 +90,9 @@ try {
     $log = Join-Path ([IO.Path]::GetTempPath()) 'TrustRemontPlanner-start.log'
     Assert ((Get-Content -LiteralPath $log -Raw) -match 'start-planner.ps1') 'Parse error was not logged.'
     Write-Host 'Windows BAT launcher smoke checks passed.'
+    # The last BAT intentionally fails (parse-error case). GitHub's PowerShell
+    # wrapper propagates LASTEXITCODE even after all assertions have succeeded.
+    $global:LASTEXITCODE = 0
 } finally {
     if ($server -and !$server.HasExited) { & taskkill.exe /PID $server.Id /T /F | Out-Null }
     $env:PATH = $originalPath

@@ -13,13 +13,14 @@ import { ProjectScreen } from './screens/ProjectInfo';
 import { RulesModal } from './screens/Rules';
 import { MAX_BACKUP_BYTES } from './storage/validate';
 import { ErrorBoundary } from './state/ErrorBoundary';
+import { clearSourceCache } from './state/useSource';
 
 export const STEPS = ['Проект', 'Загрузка', 'Бриф', 'Разметка', 'Варианты', 'Мини-концепция', 'Для клиента'] as const;
 
 export function App() {
   const [project, setProject] = useState<Project | null>(null);
   // Каждый запуск начинается с пустой формы. Старый проект открывается только вручную.
-  const open = (p: Project | null) => setProject(p);
+  const open = (p: Project | null) => { clearSourceCache(); setProject(p); };
   if (!project) return <Projects onOpen={open} />;
   return (
     <ProjectProvider key={project.id} initial={project}>

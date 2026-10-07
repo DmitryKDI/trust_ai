@@ -6,6 +6,11 @@ import { renderImage, renderPdfPage, type RenderedPage } from '../pdf/load';
 
 const cache = new Map<string, Promise<RenderedPage>>();
 
+export function clearSourceCache() {
+  for (const entry of cache.values()) void entry.then(page => { if (page.imageUrl.startsWith('blob:')) URL.revokeObjectURL(page.imageUrl); }).catch(() => {});
+  cache.clear();
+}
+
 export function loadPage(doc: SourceDocument, page: number, withVectors = true): Promise<RenderedPage> {
   const key = `${doc.id}:${page}:${withVectors}`;
   let p = cache.get(key);
@@ -17,7 +22,8 @@ export function loadPage(doc: SourceDocument, page: number, withVectors = true):
       return renderImage(blob);
     })();
     cache.set(key, p);
-    p.catch(() => cache.delete(key));
+    const entry = p;
+    p.catch(() => { if (cache.get(key) === entry) cache.delete(key); });
   }
   return p;
 }
