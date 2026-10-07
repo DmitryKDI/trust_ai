@@ -1,6 +1,7 @@
 // Хранение проектов и исходных файлов в IndexedDB браузера + резервная копия в JSON.
 import type { Project } from '../model/types';
 import { parseLearning, type LearnedPlan, type LearningBackup } from '../learning/model';
+import { checkedProject, parseSafeJson, MAX_DOCUMENT_BYTES } from './validate';
 
 const DB = 'trust-planner';
 const VERSION = 2;
@@ -23,7 +24,9 @@ async function tx<T>(store: string, mode: IDBTransactionMode, fn: (s: IDBObjectS
   const db = await open();
   return new Promise<T>((resolve, reject) => {
     const t = db.transaction(store, mode);
-    const r = fn(t.objectStore(store));
+    let r: IDBRequest<T> | void;
+    try { r = fn(t.objectStore(store)); }
+    catch (e) { t.abort(); db.close(); reject(e); return; }
     t.oncomplete = () => { resolve(r ? (r.result as T) : (undefined as T)); db.close(); };
     t.onerror = () => { reject(t.error); db.close(); };
     t.onabort = () => { reject(t.error); db.close(); };
@@ -105,13 +108,37 @@ export async function exportProject(p: Project): Promise<Blob> {
 }
 
 export async function importProject(text: string): Promise<Project> {
-  const data = JSON.parse(text) as ExportFile;
-  if (data.format !== 'trust-planner-project') throw new Error('Это не файл проекта планировщика');
+  const data = parseSafeJson(text) as ExportFile;
+  if (!data || data.format !== 'trust-planner-project' || data.version !== 1) throw new Error('Это не поддерживаемый файл проекта планировщика');
+  const project = checkedProject(data.project);
   const learning = data.learning ? parseLearning(JSON.stringify(data.learning)) : [];
-  for (const [id, f] of Object.entries(data.files ?? {})) await putFile(id, fromBase64(f.base64, f.mime));
-  await saveProject(data.project);
+  if (!data.files || typeof data.files !== 'object' || Array.isArray(data.files)) throw new Error('В резервной копии отсутствует список файлов.');
+  const files = new Map<string, Blob>();
+  for (const [id, f] of Object.entries(data.files)) {
+    const doc = project.documents.find(d => d.id === id);
+    if (!doc || !f || f.mime !== doc.mime || typeof f.base64 !== 'string' || f.base64.length > Math.ceil(MAX_DOCUMENT_BYTES / 3) * 4 || f.base64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(f.base64)) throw new Error('Некорректный файл в резервной копии.');
+    const blob = fromBase64(f.base64, f.mime);
+    if (blob.size !== doc.size) throw new Error('Размер исходника не соответствует резервной копии.');
+    files.set(id, blob);
+  }
+  if (project.documents.some(d => !files.has(d.id))) throw new Error('Резервная копия не содержит всех исходных файлов.');
+  const db = await open();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(['projects', 'files'], 'readwrite');
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(new Error('Импорт отменён: исходники используются другим проектом или хранилище недоступно.'));
+      const existing = transaction.objectStore('projects').getAll();
+      existing.onsuccess = () => {
+        if ((existing.result as Project[]).some(p => p.id !== project.id && p.documents.some(d => files.has(d.id)))) { transaction.abort(); return; }
+        for (const [id, blob] of files) transaction.objectStore('files').put(blob, id);
+        transaction.objectStore('projects').put(project);
+      };
+    });
+  } finally { db.close(); }
   for (const plan of learning) await saveLearnedPlan(plan);
-  return data.project;
+  return project;
 }
 
 export async function fileFingerprint(blob: Blob): Promise<string> {

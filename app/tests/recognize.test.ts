@@ -21,14 +21,15 @@ const CASES = [
 ];
 
 async function loadPdf(file: string) {
-  const doc = await pdfjs.getDocument({ data: new Uint8Array(fs.readFileSync(file)) }).promise;
+  const task = pdfjs.getDocument({ data: new Uint8Array(fs.readFileSync(file)) });
+  const doc = await task.promise;
   const page = await doc.getPage(1);
   const vp = page.getViewport({ scale: 1 });
   const ol = await page.getOperatorList();
   const vectors = parseOperatorList(ol.fnArray, ol.argsArray as unknown[][], pdfjs.OPS as unknown as OpsCodes, vp.transform as never, vp.width, vp.height);
   const tc = await page.getTextContent();
   const texts = textBoxes(tc.items as RawTextItem[], vp.transform);
-  await doc.destroy();
+  await task.destroy();
   return { vectors, texts };
 }
 

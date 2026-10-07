@@ -14,7 +14,7 @@
     "bench": "vitest run tests/bench.test.ts"
   },
   "dependencies": {
-    "pdfjs-dist": "^5.7.284",
+    "pdfjs-dist": "^6.4.299",
     "polygon-clipping": "^0.15.7",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"

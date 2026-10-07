@@ -17,9 +17,12 @@ export interface ReadResult {
 
 function runWorker<T>(w: Worker, msg: unknown, transfer: Transferable[]): Promise<T> {
   return new Promise((resolve, reject) => {
-    w.onmessage = (e) => { w.terminate(); if (e.data.ok) resolve(e.data as T); else reject(new Error(e.data.error)); };
-    w.onerror = (e) => { w.terminate(); reject(new Error(e.message)); };
-    w.postMessage(msg, transfer);
+    const timer = setTimeout(() => { w.terminate(); reject(new Error('Распознавание заняло больше двух минут. Уменьшите разрешение плана.')); }, 120000);
+    const stop = () => { clearTimeout(timer); w.terminate(); };
+    w.onmessage = (e) => { stop(); if (e.data.ok) resolve(e.data as T); else reject(new Error(e.data.error)); };
+    w.onerror = (e) => { stop(); reject(new Error(e.message)); };
+    w.onmessageerror = () => { stop(); reject(new Error('Не удалось прочитать результат распознавания.')); };
+    try { w.postMessage(msg, transfer); } catch (e) { stop(); reject(e); }
   });
 }
 

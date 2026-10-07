@@ -8,6 +8,8 @@ on:
       - 'app/tests/**'
       - 'app/e2e/**'
       - 'app/package*.json'
+      - 'app/vite.config.ts'
+      - 'app/index.html'
       - '.github/workflows/editor-check.yml'
 permissions:
   contents: read
@@ -24,11 +26,12 @@ jobs:
         with:
           node-version: 24
       - run: npm ci
+      - run: npm audit --audit-level=high
       - run: npm run typecheck
       - run: npx vitest run --exclude tests/bench.test.ts --maxWorkers=2 --testTimeout=30000
       - run: npm run build
       - name: Desktop editing and persistence through the actual UI
-        run: npx playwright test e2e/editor-shortcuts.spec.ts e2e/manual-dimensions.spec.ts e2e/flow.spec.ts e2e/scene.spec.ts e2e/editor-interactions.spec.ts --project=desktop --reporter=line --workers=1
+        run: npx playwright test e2e/editor-shortcuts.spec.ts e2e/manual-dimensions.spec.ts e2e/flow.spec.ts e2e/scene.spec.ts e2e/editor-interactions.spec.ts e2e/security.spec.ts --project=desktop --reporter=line --workers=1
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

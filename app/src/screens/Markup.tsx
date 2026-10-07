@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as RPE } from 'react';
 import type { FixedKind, Opening, PlanGeometry, Pt, Room, RoomType, WallKind } from '../model/types';
 import { uid } from '../model/defaults';
+import { checkedGeometry, parseSafeJson, MAX_BACKUP_BYTES } from '../storage/validate';
 import { useStore } from '../state/store';
 import { useSourcePage } from '../state/useSource';
 import { PlanView, planBounds, polyPath } from '../plan/PlanView';
@@ -314,9 +315,9 @@ export function MarkupScreen({ next }: { next: () => void }) {
   const importMarkup = async (f: File | undefined) => {
     if (!f) return;
     try {
-      const data = JSON.parse(await f.text());
-      const gm: PlanGeometry = data.format === 'trust-planner-project' ? data.project.geometry : data;
-      if (!Array.isArray(gm.walls) || !Array.isArray(gm.rooms)) throw new Error('В файле нет разметки');
+      if (f.size > MAX_BACKUP_BYTES) throw new Error('Файл больше 200 МБ.');
+      const data = parseSafeJson(await f.text());
+      const gm = checkedGeometry(data?.format === 'trust-planner-project' ? data.project?.geometry : data);
       editGeometry((x) => ({ ...gm, sourceDocumentId: x.sourceDocumentId, sourcePage: x.sourcePage, approved: false, approvedAt: null, approvedHash: null }));
       setView(null);
       setMsg(`Разметка загружена: стен ${gm.walls.length}, проёмов ${gm.openings.length}, помещений ${gm.rooms.length}. Проверьте её поверх оригинала.`);
@@ -528,4 +529,3 @@ function Properties({ sel, onDelete }: { sel: NonNullable<Sel>; onDelete: () => 
     </div>
   );
 }
-

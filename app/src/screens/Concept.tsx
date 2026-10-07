@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ConceptReference } from '../model/types';
 import { uid } from '../model/defaults';
+import { safeSourceUrl } from '../storage/validate';
 import { useStore } from '../state/store';
 import { PlanView, planBounds } from '../plan/PlanView';
 import { ScenePanel } from '../scene/ScenePanel';
@@ -36,9 +37,11 @@ export function ConceptScreen({ next }: { next: () => void }) {
 
   const addImage = (f: File | undefined, over?: { caption: string; sourceName: string }) => {
     if (!f) return;
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(f.type)) { alert('Нужен PNG, JPEG или WebP.'); return; }
     if (f.size > 3 * 1024 * 1024) { alert('Изображение больше 3 МБ — уменьшите его.'); return; }
     const r = new FileReader();
-    r.onload = () => set({ references: [...c.references, { id: uid('ref'), url: String(r.result), caption: over?.caption ?? (newRef.caption || f.name), sourceName: over?.sourceName ?? (newRef.sourceName || 'не указан'), sourceUrl: '', kind: newRef.kind }] });
+    r.onload = () => update(p => p.concept.references.length >= 4 ? p : { ...p, concept: { ...p.concept, references: [...p.concept.references, { id: uid('ref'), url: String(r.result), caption: over?.caption ?? (newRef.caption || f.name), sourceName: over?.sourceName ?? (newRef.sourceName || 'не указан'), sourceUrl: '', kind: newRef.kind }] } });
+    r.onerror = () => alert('Не удалось прочитать изображение.');
     r.readAsDataURL(f);
   };
 
@@ -97,7 +100,7 @@ export function ConceptScreen({ next }: { next: () => void }) {
               <span className="tag">{r.kind === 'reference' ? 'Референс' : 'Иллюстрация'}</span>
               <div className="cap">
                 <input value={r.caption} onChange={(e) => set({ references: c.references.map((x) => (x.id === r.id ? { ...x, caption: e.target.value } : x)) })} />
-                <div className="muted" style={{ marginTop: 4 }}>Источник: {r.sourceUrl ? <a href={r.sourceUrl} target="_blank" rel="noreferrer">{r.sourceName}</a> : r.sourceName}</div>
+                <div className="muted" style={{ marginTop: 4 }}>Источник: {r.sourceUrl && safeSourceUrl(r.sourceUrl) ? <a href={r.sourceUrl} target="_blank" rel="noreferrer">{r.sourceName}</a> : r.sourceName}</div>
                 <button className="btn ghost sm" style={{ marginTop: 6 }} onClick={() => set({ references: c.references.filter((x) => x.id !== r.id) })}>Убрать</button>
               </div>
             </div>

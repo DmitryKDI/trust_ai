@@ -11,6 +11,8 @@ import { ConceptScreen } from './screens/Concept';
 import { ClientScreen } from './screens/Client';
 import { ProjectScreen } from './screens/ProjectInfo';
 import { RulesModal } from './screens/Rules';
+import { MAX_BACKUP_BYTES } from './storage/validate';
+import { ErrorBoundary } from './state/ErrorBoundary';
 
 export const STEPS = ['Проект', 'Загрузка', 'Бриф', 'Разметка', 'Варианты', 'Мини-концепция', 'Для клиента'] as const;
 
@@ -21,13 +23,21 @@ export function App() {
   if (!project) return <Projects onOpen={open} />;
   return (
     <ProjectProvider key={project.id} initial={project}>
-      <Workspace onClose={() => open(null)} />
+      <ErrorBoundary fallback={<Recovery onClose={() => open(null)} />}><Workspace onClose={() => open(null)} /></ErrorBoundary>
     </ProjectProvider>
   );
 }
 
+function Recovery({ onClose }: { onClose: () => void }) {
+  const { project, flushSave } = useStore();
+  const [error, setError] = useState('');
+  return <main className="main"><div className="notice err" role="alert">Не удалось отобразить проект. Сохраните резервную копию, затем откройте проект заново и проверьте масштаб и разметку.</div>
+    <div className="actions"><button className="btn" onClick={() => { void exportProject(project).then(blob => { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'project-recovery.trust-plan.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }).catch(e => setError(String(e.message ?? e))); }}>Резервная копия проекта</button>
+    <button className="btn secondary" onClick={() => { void flushSave().then(onClose).catch(e => setError(String(e.message ?? e))); }}>Все проекты</button></div>{error && <p role="alert">{error}</p>}</main>;
+}
+
 function Workspace({ onClose }: { onClose: () => void }) {
-  const { project, saving } = useStore();
+  const { project, saving, saveError, flushSave } = useStore();
   const [step, setStep] = useState(() => (project.variants.length ? 4 : project.documents.length ? 1 : 0));
   const [rulesOpen, setRulesOpen] = useState(false);
   const g = project.geometry;
@@ -58,11 +68,12 @@ function Workspace({ onClose }: { onClose: () => void }) {
           <div><strong>{project.alias || 'Без названия'}</strong> · {STEPS[step]}</div>
           <div className="counts">
             <span className={`badge ${g.approved ? 'ok' : 'warn'}`}>{g.approved ? 'Геометрия утверждена' : 'Геометрия не утверждена'}</span>
-            <span className="badge">{saving ? 'Сохранение…' : 'Сохранено в браузере'}</span>
+            <span className={`badge ${saveError ? 'warn' : ''}`}>{saveError ? 'Не сохранено' : saving ? 'Сохранение…' : 'Сохранено в браузере'}</span>
             <button className="btn ghost sm no-print" onClick={() => setRulesOpen(true)}>Правила</button>
-            <button className="btn ghost sm no-print" onClick={onClose}>Все проекты</button>
+            <button className="btn ghost sm no-print" onClick={() => { void flushSave().then(onClose).catch(() => {}); }}>Все проекты</button>
           </div>
         </div>
+        {saveError && <div className="notice err no-print" role="alert">Не удалось сохранить проект: {saveError}. <button className="btn secondary sm" onClick={() => { void flushSave().catch(() => {}); }}>Повторить сохранение</button></div>}
         {step === 0 && <ProjectScreen next={() => go(1)} />}
         {step === 1 && <UploadScreen next={() => go(2)} toVariants={() => go(4)} toMarkup={() => go(3)} />}
         {step === 2 && <BriefScreen next={() => go(3)} />}
@@ -80,17 +91,16 @@ function Projects({ onOpen }: { onOpen: (p: Project) => void }) {
   const [list, setList] = useState<Project[]>([]);
   const [form, setForm] = useState({ alias: '', city: 'Москва', manager: '', date: new Date().toISOString().slice(0, 10) });
   const [msg, setMsg] = useState<string | null>(null);
-  const refresh = () => listProjects().then((l) => setList(l.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))));
+  const refresh = () => listProjects().then((l) => setList(l.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)))).catch(e => setMsg(`Не удалось открыть хранилище: ${String(e.message ?? e)}`));
   useEffect(() => { refresh(); }, []);
 
   const create = async () => {
     const p = newProject({ ...form, alias: form.alias.trim() || `Клиент ${list.length + 1}` });
-    await saveProject(p);
-    onOpen(p);
+    try { await saveProject(p); onOpen(p); } catch (e) { setMsg(`Не удалось создать проект: ${String((e as Error).message ?? e)}`); }
   };
   const onImport = async (f: File | undefined) => {
     if (!f) return;
-    try { onOpen(await importProject(await f.text())); } catch (e) { setMsg(String((e as Error).message)); }
+    try { if (f.size > MAX_BACKUP_BYTES) throw new Error('Резервная копия больше 200 МБ.'); onOpen(await importProject(await f.text())); } catch (e) { setMsg(String((e as Error).message)); }
   };
   const download = async (p: Project) => {
     const url = URL.createObjectURL(await exportProject(p));

@@ -7,8 +7,10 @@ export class Grid {
   readonly ny: number;
   readonly blocked: Uint8Array;
   constructor(readonly b: BBox, readonly step: number) {
+    if (!Number.isFinite(step) || step <= 0 || !Object.values(b).every(Number.isFinite) || b.maxX < b.minX || b.maxY < b.minY) throw new Error('Некорректный масштаб сетки проверки.');
     this.nx = Math.max(1, Math.ceil((b.maxX - b.minX) / step));
     this.ny = Math.max(1, Math.ceil((b.maxY - b.minY) / step));
+    if (this.nx * this.ny > 4000000) throw new Error('План слишком большой для проверки. Проверьте масштаб или увеличьте шаг сетки.');
     this.blocked = new Uint8Array(this.nx * this.ny).fill(1);
   }
   center(i: number, j: number): Pt {

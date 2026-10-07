@@ -23,15 +23,17 @@ function DocPicker({ role }: { role: 'plan' | 'reference' }) {
 
   useEffect(() => {
     let alive = true;
+    let imageUrl: string | null = null;
     setThumbs([]);
-    if (!doc) return;
+    if (!doc) { setThumbsLoading(false); return; }
     setThumbsLoading(true);
     getFile(doc.id).then(async (b) => {
       if (!b || !alive) return;
-      const t = doc.mime === 'application/pdf' ? await pdfThumbnails(await b.arrayBuffer(), 60, 180) : [URL.createObjectURL(b)];
+      const t = doc.mime === 'application/pdf' ? await pdfThumbnails(await b.arrayBuffer(), 60, 180) : [imageUrl = URL.createObjectURL(b)];
       if (alive) setThumbs(t);
-    }).catch((e) => setErr(String(e))).finally(() => alive && setThumbsLoading(false));
-    return () => { alive = false; };
+      else if (imageUrl) URL.revokeObjectURL(imageUrl);
+    }).catch((e) => alive && setErr(String(e))).finally(() => alive && setThumbsLoading(false));
+    return () => { alive = false; if (imageUrl) URL.revokeObjectURL(imageUrl); };
   }, [doc?.id]);
 
   const onFile = async (f: File | undefined) => {
@@ -44,8 +46,8 @@ function DocPicker({ role }: { role: 'plan' | 'reference' }) {
     setBusy(true);
     try {
       const id = uid('doc');
-      await putFile(id, f);
       const pageCount = isPdf ? await pdfPageCount(await f.arrayBuffer()) : 1;
+      await putFile(id, f);
       const d: SourceDocument = { id, name: f.name, mime: isPdf ? 'application/pdf' : f.type, size: f.size, pageCount, role, addedAt: new Date().toISOString() };
       update((p) => ({ ...p, documents: [...p.documents.filter((x) => x.role !== role), d], ...(role === 'reference' ? { referencePage: 1 } : {}) }));
       if (role === 'plan') {

@@ -24,6 +24,8 @@ const ADDABLE: FurnitureType[] = ['bed-double', 'bed-single', 'bedside', 'wardro
 
 export function VariantsScreen({ next, back }: { next: () => void; back: () => void }) {
   const { project, update, rules } = useStore();
+  const currentProject = useRef(project); currentProject.current = project;
+  const buildStamp = (p: Project) => JSON.stringify([geometryHash(p.geometry), p.geometry.approved, p.brief, p.ruleOverrides, p.variants]);
   const g = project.geometry;
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -39,8 +41,10 @@ export function VariantsScreen({ next, back }: { next: () => void; back: () => v
     if (busy) return;
     setBusy(true);
     setErr(null);
+    const stamp = buildStamp(project);
     try {
       const res = await runVariantsInWorker(g, project.brief, project.ruleOverrides, target ? [target.scenario] : undefined, { seed: crypto.getRandomValues(new Uint32Array(1))[0] || 1, previous: project.variants.flatMap(v => v.items) });
+      if (buildStamp(currentProject.current) !== stamp) { setErr('План, бриф или варианты изменились во время сборки. Запустите пересборку ещё раз.'); return; }
       if (target) {
         const replacement = res.variants[0];
         if (!replacement || layoutSignature(replacement.items) === layoutSignature(target.items) || project.variants.some(v => v.id !== target.id && layoutSignature(v.items) === layoutSignature(replacement.items))) {
@@ -170,7 +174,6 @@ function VariantDetail({ v }: { v: Variant }) {
   // Сохраняем правки и актуальные проверки в проект.
   useEffect(() => {
     if (dragging || deferred === v.items) return; // ничего не менялось
-    const t = window.setTimeout(() => {
       const ex = explain(g, v.scenario, deferred, rules, project.brief, result.issues, []);
       update((p) => ({
         ...p,
@@ -178,8 +181,6 @@ function VariantDetail({ v }: { v: Variant }) {
         selectedVariantId: p.selectedVariantId === v.id ? null : p.selectedVariantId,
         review: p.selectedVariantId === v.id ? null : p.review,
       }));
-    }, 300);
-    return () => window.clearTimeout(t);
   }, [deferred, dragging]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toWorld = (e: { clientX: number; clientY: number }, inverse?: DOMMatrix) => {
@@ -448,4 +449,3 @@ function scaleProject(p: Project, f: number): Project {
   // Старые варианты построены на прежнем масштабе — убираем, их пересоберут.
   return { ...p, geometry: { ...g2, approvedHash: geometryHash(g2) }, planImage: p.planImage && { ...p.planImage, widthMm: p.planImage.widthMm * f, heightMm: p.planImage.heightMm * f }, variants: [], selectedVariantId: null, review: null };
 }
-
