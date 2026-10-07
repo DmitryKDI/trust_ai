@@ -18,7 +18,7 @@ async function point(svg: Locator, x: number, y: number) {
   await svg.scrollIntoViewIfNeeded(); const p = await svg.evaluate((el: SVGSVGElement, value) => { const p = el.createSVGPoint(); p.x = value.x; p.y = value.y; const s = p.matrixTransform(el.getScreenCTM()!); return { x: s.x, y: s.y }; }, { x, y }); return p;
 }
 async function click(page: Page, svg: Locator, x: number, y: number) { const p = await point(svg, x, y); await page.mouse.click(p.x, p.y); }
-async function drag(page: Page, svg: Locator, from: [number, number], to: [number, number]) { const a = await point(svg, ...from), b = await point(svg, ...to); await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.move(b.x, b.y, { steps: 8 }); await page.mouse.up(); }
+async function drag(page: Page, svg: Locator, from: [number, number], to: [number, number], shiftLayout = false) { const a = await point(svg, ...from), b = await point(svg, ...to); await page.mouse.move(a.x, a.y); await page.mouse.down(); if (shiftLayout) await svg.evaluate(el => { (el.closest('.detail') as HTMLElement).style.marginTop = '78px'; }); await page.mouse.move(b.x, b.y, { steps: 8 }); await page.mouse.up(); if (shiftLayout) await svg.evaluate(el => { (el.closest('.detail') as HTMLElement).style.marginTop = ''; }); }
 
 test('Shift, общая смена типа, замыкание и углы зон сохраняются с отменой', async ({ page }) => {
   const errors: string[] = []; page.on('pageerror', e => errors.push(e.message)); const p = await example(page);
@@ -51,7 +51,7 @@ test('мебель: Shift, тип группы, растягивание, чис
   await detail.getByRole('button', { name: 'Отменить мебель', exact: true }).click(); await expect(svg.locator('[data-item-id="sofa-one"]')).toHaveAttribute('data-item-type', 'sofa');
   await detail.getByRole('button', { name: 'Повторить мебель', exact: true }).click(); await expect(svg.locator('[data-item-id="sofa-one"]')).toHaveAttribute('data-item-type', 'armchair');
   await click(page, svg, 2500, 4000); await click(page, svg, 2000, 2000); await expect(svg.locator('[data-resize-handle]')).toHaveCount(8);
-  await drag(page, svg, [2500, 2300], [2900, 2500]); await expect(detail.getByLabel('Ширина предмета, мм', { exact: true })).toHaveValue('1400'); await expect(detail.getByLabel('Глубина предмета, мм', { exact: true })).toHaveValue('800');
+  await drag(page, svg, [2500, 2300], [2900, 2500], true); await expect(detail.getByLabel('Ширина предмета, мм', { exact: true })).toHaveValue('1400'); await expect(detail.getByLabel('Глубина предмета, мм', { exact: true })).toHaveValue('800');
   await detail.getByRole('button', { name: 'Отменить мебель', exact: true }).click(); await expect(detail.getByLabel('Ширина предмета, мм', { exact: true })).toHaveValue('1000');
   await detail.getByLabel('Ширина предмета, мм', { exact: true }).fill('1600'); await detail.getByLabel('Ширина предмета, мм', { exact: true }).press('Enter');
   await expect.poll(async () => (await saved(page))?.variants[0].items[0].w).toBe(1600);

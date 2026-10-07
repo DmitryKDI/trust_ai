@@ -159,16 +159,17 @@ function VariantDetail({ v }: { v: Variant }) {
   const [history, setHistory] = useState<{ past: FurnitureItem[][]; future: FurnitureItem[][] }>({ past: [], future: [] });
   const [snapping, setSnapping] = useState(true);
   const [guides, setGuides] = useState<SnapGuide[]>([]);
+  const [dragging, setDragging] = useState(false);
   const [hl, setHl] = useState<string[]>([]);
   const svgRef = useRef<SVGSVGElement>(null);
-  const drag = useRef<{ mode: 'move' | 'resize'; id: string; ids: string[]; start: { x: number; y: number }; item: FurnitureItem; before: FurnitureItem[]; context: FurnitureSnapContext; handle?: ResizeHandle; moved: boolean } | null>(null);
+  const drag = useRef<{ mode: 'move' | 'resize'; id: string; ids: string[]; start: { x: number; y: number }; item: FurnitureItem; before: FurnitureItem[]; context: FurnitureSnapContext; inverse: DOMMatrix; handle?: ResizeHandle; moved: boolean } | null>(null);
   const deferred = useDeferredValue(items);
   const result = useMemo(() => validate(g, deferred, rules, project.brief, { expectedHash: v.geometryHash }), [g, deferred, rules, project.brief, v.geometryHash]);
   const errors = result.issues.filter((i) => i.severity === 'error');
 
   // Сохраняем правки и актуальные проверки в проект.
   useEffect(() => {
-    if (deferred === v.items) return; // ничего не менялось
+    if (dragging || deferred === v.items) return; // ничего не менялось
     const t = window.setTimeout(() => {
       const ex = explain(g, v.scenario, deferred, rules, project.brief, result.issues, []);
       update((p) => ({
@@ -179,19 +180,19 @@ function VariantDetail({ v }: { v: Variant }) {
       }));
     }, 300);
     return () => window.clearTimeout(t);
-  }, [deferred]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [deferred, dragging]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const toWorld = (e: { clientX: number; clientY: number }) => {
+  const toWorld = (e: { clientX: number; clientY: number }, inverse?: DOMMatrix) => {
     const svg = svgRef.current!;
     const pt = svg.createSVGPoint();
     pt.x = e.clientX; pt.y = e.clientY;
-    return pt.matrixTransform(svg.getScreenCTM()!.inverse());
+    return pt.matrixTransform(inverse ?? svg.getScreenCTM()!.inverse());
   };
   const live = (next: FurnitureItem[]) => { itemsRef.current = next; setItems(next); };
   const record = (before: FurnitureItem[]) => setHistory(h => ({ past: [...h.past.slice(-99), before], future: [] }));
   const changeItems = (fn: (list: FurnitureItem[]) => FurnitureItem[]) => { const before = itemsRef.current, next = fn(before); if (JSON.stringify(before) === JSON.stringify(next)) return; record(before); live(next); };
   const undoItems = () => {
-    if (drag.current) { live(drag.current.before); drag.current = null; setGuides([]); return; }
+    if (drag.current) { live(drag.current.before); drag.current = null; setDragging(false); setGuides([]); return; }
     const before = history.past.at(-1); if (!before) return; const currentItems = itemsRef.current;
     setHistory(h => ({ past: h.past.slice(0, -1), future: [currentItems, ...h.future] })); live(before);
   };
@@ -203,18 +204,18 @@ function VariantDetail({ v }: { v: Variant }) {
     if (e.shiftKey) { setSelection(current => current.includes(it.id) ? current.filter(id => id !== it.id) : [...current, it.id]); return; }
     const ids = selection.includes(it.id) ? selection : [it.id]; setSelection(ids);
     const p = toWorld(e), before = itemsRef.current;
-    drag.current = { mode: 'move', id: it.id, ids, start: { x: p.x, y: p.y }, item: it, before, context: furnitureSnapContext(g, before.filter(i => !ids.includes(i.id))), moved: false };
-    svgRef.current?.setPointerCapture(e.pointerId);
+    drag.current = { mode: 'move', id: it.id, ids, start: { x: p.x, y: p.y }, item: it, before, inverse: svgRef.current!.getScreenCTM()!.inverse(), context: furnitureSnapContext(g, before.filter(i => !ids.includes(i.id))), moved: false };
+    setDragging(true); svgRef.current?.setPointerCapture(e.pointerId);
   };
   const onResizeDown = (e: RPE<SVGRectElement>, handle: ResizeHandle) => {
     if (e.button !== 0 || !sel) return; e.preventDefault(); e.stopPropagation(); svgRef.current?.focus({ preventScroll: true });
     const p = toWorld(e), before = itemsRef.current;
-    drag.current = { mode: 'resize', id: sel.id, ids: [sel.id], start: { x: p.x, y: p.y }, item: sel, before, context: furnitureSnapContext(g, before.filter(i => i.id !== sel.id)), handle, moved: false };
-    svgRef.current?.setPointerCapture(e.pointerId);
+    drag.current = { mode: 'resize', id: sel.id, ids: [sel.id], start: { x: p.x, y: p.y }, item: sel, before, inverse: svgRef.current!.getScreenCTM()!.inverse(), context: furnitureSnapContext(g, before.filter(i => i.id !== sel.id)), handle, moved: false };
+    setDragging(true); svgRef.current?.setPointerCapture(e.pointerId);
   };
   const onMove = (e: RPE<SVGSVGElement>) => {
     const d = drag.current; if (!d) return;
-    const p = toWorld(e); if (!d.moved && Math.hypot(p.x - d.start.x, p.y - d.start.y) < 2 * mmPerPx()) return;
+    const p = toWorld(e, d.inverse); if (!d.moved && Math.hypot(p.x - d.start.x, p.y - d.start.y) < 2 * mmPerPx()) return;
     d.moved = true;
     const radius = Math.min(120, 10 * mmPerPx()), useSnap = snapping && !e.altKey;
     let item: FurnitureItem;
@@ -231,8 +232,8 @@ function VariantDetail({ v }: { v: Variant }) {
       live(d.before.map(i => { if (!d.ids.includes(i.id)) return i; const x = i.x + dx, y = i.y + dy; return { ...i, x, y, movedByManager: true, roomId: g.rooms.find(r => pointInPolygon({ x, y }, r.polygon))?.id ?? i.roomId }; }));
     }
   };
-  const onUp = () => { const d = drag.current; if (d?.moved && JSON.stringify(d.before) !== JSON.stringify(itemsRef.current)) record(d.before); drag.current = null; setGuides([]); };
-  const onCancel = () => { if (drag.current) live(drag.current.before); drag.current = null; setGuides([]); };
+  const onUp = () => { const d = drag.current; if (d?.moved && JSON.stringify(d.before) !== JSON.stringify(itemsRef.current)) record(d.before); drag.current = null; setDragging(false); setGuides([]); };
+  const onCancel = () => { if (drag.current) live(drag.current.before); drag.current = null; setDragging(false); setGuides([]); };
 
   const selectedItems = items.filter(i => selection.includes(i.id));
   const sel = items.find(i => i.id === selId) ?? null;
