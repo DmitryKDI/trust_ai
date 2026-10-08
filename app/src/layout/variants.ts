@@ -110,7 +110,7 @@ export function buildVariants(g: PlanGeometry, brief: Brief, rules: Rules, scena
     const sig = signature(r.placements);
     const storage = metricsOf(g, r.items, rules).storageMm;
     const dup = sigs.find((s) => s.sig === sig && Math.abs(s.storage - storage) < 500);
-    if (dup) {
+    if (dup && !fixed.length) {
       rejected.push({ scenario, title: r.scenario.title, reason: `в этой квартире совпадает с вариантом «${dup.title}» — не показываем как отдельный` });
       continue;
     }

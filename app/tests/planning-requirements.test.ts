@@ -45,6 +45,7 @@ it('бриф и правила снимают утверждение; смена
   const p = newProject({ alias: 'Тест', city: '', manager: '', date: '' }); p.geometry = twoRoom(); p.variants = buildVariants(p.geometry, p.brief, rules, ['space']).variants;
   p.variants[0].inputsHash = undefined; p.variants[0].approved = true; p.selectedVariantId = p.variants[0].id;
   expect(variantCurrent(p.variants[0], p)).toBe(true);
+  expect(variantCurrent(p.variants[0], { ...p, geometry: { ...p.geometry, approved: false } })).toBe(false);
   const changed = invalidatePlanningInputs(p, { ...p, brief: { ...p.brief, priorities: 'Другое' } }); expect(changed.selectedVariantId).toBeNull(); expect(changed.variants[0].approved).toBe(false); expect(variantCurrent(changed.variants[0], changed)).toBe(false);
   expect(invalidatePlanningInputs(p, { ...p, ruleOverrides: { passageMin: 1200 } }).variants[0].approved).toBe(false);
   const palette = { ...p, concept: { ...p.concept, palette: [{ name: 'Белый', hex: '#ffffff' }] } }; expect(invalidatePlanningInputs(p, palette)).toBe(palette);
@@ -61,4 +62,15 @@ it('наклонная стена, наложение и пустой план �
   expect(furnitureMeasurements(sofa(), { walls: [], edges: [{ a: { x: 500, y: 500 }, b: { x: 1500, y: 2500 } }], others: [] }).find(x => x.id === 'wall-left')?.mm).toBe(250);
   expect(furnitureMeasurements(sofa(), { walls: [], edges: [], others: [sofa({ id: 'other', x: 2200 })] })[0].mm).toBe(0);
   expect(furnitureMeasurements(sofa(), { walls: [], edges: [], others: [] })).toEqual([]);
+});
+it('общая пересборка сохраняет отдельное закрепление каждого сценария', () => {
+  const g = twoRoom();
+  const locks = { space: [sofa({ id: 'lock-space', locked: true, roomId: g.rooms[0].id })], storage: [sofa({ id: 'lock-storage', locked: true, x: 3000, roomId: g.rooms[0].id })], family: [sofa({ id: 'lock-family', locked: true, x: 4000, roomId: g.rooms[0].id })] };
+  const r = buildVariants(g, brief, rules, undefined, { fixedByScenario: locks, seed: 412 });
+  expect(r.variants).toHaveLength(3);
+  for (const v of r.variants) {
+    expect(v.items.filter(i => i.locked)).toEqual(locks[v.scenario]);
+    expect(v.items.filter(i => i.type === 'sofa')).toHaveLength(1);
+  }
+  expect(() => buildVariants(g, needs({ forbidden: ['sofa'] }), rules, ['space'], { fixedByScenario: locks })).toThrow(/запрещён/);
 });

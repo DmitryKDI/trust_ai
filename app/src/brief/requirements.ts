@@ -44,7 +44,7 @@ export function planningInputsHash(brief: Brief, rules: Rules): string {
   return `inputs-${(a >>> 0).toString(16)}-${(b >>> 0).toString(16)}-${s.length}`;
 }
 export function variantCurrent(v: Variant, p: Project): boolean {
-  return v.geometryHash === geometryHash(p.geometry) && (!v.inputsHash || v.inputsHash === planningInputsHash(p.brief, resolveRules(p.ruleOverrides)));
+  return p.geometry.approved && v.geometryHash === geometryHash(p.geometry) && (!v.inputsHash || v.inputsHash === planningInputsHash(p.brief, resolveRules(p.ruleOverrides)));
 }
 export function invalidatePlanningInputs(before: Project, next: Project): Project {
   const oldHash = planningInputsHash(before.brief, resolveRules(before.ruleOverrides));

@@ -138,9 +138,9 @@ export function VariantsScreen({ next, back }: { next: () => void; back: () => v
       {open && <ReferenceCompare v={open} />}
 
       <div className="actions">
-        <button className="btn" disabled={!project.variants.some((v) => v.approved)} onClick={next}>К мини-концепции</button>
+        <button className="btn" disabled={!project.variants.some((v) => v.approved && variantCurrent(v, project))} onClick={next}>К мини-концепции</button>
         <button className="btn secondary" onClick={back}>К разметке</button>
-        {!project.variants.some((v) => v.approved) && project.variants.length > 0 && <span className="muted small">Утвердите вариант перед показом клиенту</span>}
+        {!project.variants.some((v) => v.approved && variantCurrent(v, project)) && project.variants.length > 0 && <span className="muted small">Утвердите вариант перед показом клиенту</span>}
       </div>
       <p className="fineprint">Проверки используют рабочие допущения («Правила»: проход {rules.passageMin} мм, подход {rules.accessMin} мм и т. д.). Это предпродажная схема, не проектная документация.</p>
     </div>
