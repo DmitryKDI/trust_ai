@@ -19,6 +19,7 @@ test('фиксация, расстояния и пересборка комна�
   await detail.getByRole('button', { name: 'Закрепить выбранную мебель', exact: true }).click();
   await expect(detail.locator('[data-resize-handle]')).toHaveCount(0);
   await expect.poll(async () => (await saved(page))?.variants[0].items[0].locked).toBe(true);
+  await item.scrollIntoViewIfNeeded();
   const box = await item.boundingBox(); await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2); await page.mouse.down(); await page.mouse.move(box!.x + box!.width / 2 + 70, box!.y + box!.height / 2 + 70); await page.mouse.up();
   await expect.poll(async () => (await saved(page))?.variants[0].items[0].x).toBe(2000);
   await detail.getByLabel('Комната для пересборки', { exact: true }).selectOption(p.geometry.rooms[1].id);

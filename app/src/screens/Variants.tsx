@@ -335,7 +335,7 @@ function VariantDetail({ v, busy, onRebuildRoom }: { v: Variant; busy: boolean; 
           )}
         </div>
         {measurements.length > 0 && <ul className="list small" aria-label="Расстояния выбранного предмета">{measurements.map(m => <li key={m.id}>{m.label}: {m.mm} мм</li>)}</ul>}
-        <div className="actions"><label className="field">Комната для пересборки<select value={roomToRebuild} onChange={e => setRoomToRebuild(e.target.value)}>{g.rooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label><button className="btn secondary sm" disabled={busy || !roomToRebuild || dragging} onClick={() => onRebuildRoom(roomToRebuild)}>Пересобрать только эту комнату</button></div>
+        <div className="actions"><label className="field">Комната для пересборки<select aria-label="Комната для пересборки" value={roomToRebuild} onChange={e => setRoomToRebuild(e.target.value)}>{g.rooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label><button className="btn secondary sm" disabled={busy || !roomToRebuild || dragging} onClick={() => onRebuildRoom(roomToRebuild)}>Пересобрать только эту комнату</button></div>
         <p className="hint">Мебель в остальных комнатах и закреплённые предметы останутся на своих местах.</p>
         <p className="fineprint">Перетаскивайте мебель; Shift + щелчок — выбрать несколько; маркеры на сторонах и углах — изменить размер. Alt — временно без прилипания. Ctrl+Z — отменить правку мебели. Красная рамка — нарушение, жёлтая — замечание.</p>
       </div>
