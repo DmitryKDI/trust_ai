@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Project } from './model/types';
+import { variantCurrent } from './brief/requirements';
 import { newProject } from './model/defaults';
 import { deleteProject, exportProject, importProject, listProjects, saveProject } from './storage/db';
 import { ProjectProvider, useStore } from './state/store';
@@ -42,7 +43,7 @@ function Workspace({ onClose }: { onClose: () => void }) {
   const [step, setStep] = useState(() => (project.variants.length ? 4 : project.documents.length ? 1 : 0));
   const [rulesOpen, setRulesOpen] = useState(false);
   const g = project.geometry;
-  const approvedVariant = project.variants.find((v) => v.id === project.selectedVariantId && v.approved);
+  const approvedVariant = project.variants.find((v) => v.id === project.selectedVariantId && v.approved && variantCurrent(v, project));
   const done = [true, project.documents.some((d) => d.role === 'plan'), !!project.brief.area || project.brief.adults > 0, g.approved, !!approvedVariant, !!approvedVariant, false];
   const go = (n: number) => { setStep(n); window.scrollTo(0, 0); };
 

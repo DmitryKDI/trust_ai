@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useReducer,
 import type { PlanGeometry, Project } from '../model/types';
 import { saveProject } from '../storage/db';
 import { Autosave } from './autosave';
+import { invalidatePlanningInputs } from '../brief/requirements';
 import { resolveRules, type Rules } from '../rules/rules';
 
 interface Store {
@@ -29,7 +30,7 @@ type A =
 
 function reducer(s: S, a: A): S {
   switch (a.t) {
-    case 'update': return { ...s, project: a.fn(s.project) };
+    case 'update': return { ...s, project: invalidatePlanningInputs(s.project, a.fn(s.project)) };
     case 'geom': {
       const g = s.project.geometry;
       const next = a.fn(g);

@@ -1,7 +1,8 @@
 // Параметрические шаблоны: описывают правила размещения, а не координаты.
 // Сценарии — разные наборы приоритетов и состава предметов для одной и той же квартиры.
 import type { Brief, FurnitureType, RoomType, ScenarioKey } from '../model/types';
-import { DINING_PRESETS } from '../furniture/catalog';
+import { layoutNeeds } from '../brief/requirements';
+import { CATALOG, DINING_PRESETS } from '../furniture/catalog';
 
 export type Weights = Partial<{
   /** Не перекрывать окна (для кроватей — изголовье к глухой стене). */
@@ -30,6 +31,8 @@ export type Weights = Partial<{
 
 export interface ItemRule {
   id: string;
+  requirement?: import('../model/types').FurnitureRequirement;
+  adultWorkplaces?: number;
   type: FurnitureType;
   /** Типы помещений в порядке предпочтения. */
   rooms: RoomType[];
@@ -146,5 +149,23 @@ export function buildScenario(key: ScenarioKey, brief: Brief): Scenario {
     storage: { title: 'Максимум хранения', idea: 'Каждой вещи — своё место: шкафы на всю длину свободных стен' },
     family: { title: 'Семейный', idea: 'У каждого своё место: полноценная детская, рабочее место и общий стол' },
   };
-  return { key, ...meta[key], rules };
+  const needs = layoutNeeds(brief);
+  if (!brief.layoutNeeds) return { key, ...meta[key], rules };
+  const allowed = rules.filter(r => !needs.forbidden.includes(r.type) && !['bed-desk', 'living-desk'].includes(r.id));
+  for (const r of allowed) {
+    const exact = needs.required.find(req => req.type === r.type && req.w !== undefined && req.d !== undefined && (req.roomType === null || r.rooms.includes(req.roomType)));
+    if (exact) { r.size = { w: exact.w!, d: exact.d! }; r.width = undefined; r.fallbackSizes = []; }
+  }
+  const extras: ItemRule[] = [];
+  for (const req of needs.required) {
+    const base = allowed.find(r => r.type === req.type);
+    const rooms = req.roomType ? [req.roomType] : base?.rooms ?? (CATALOG[req.type].wet ? ['bath', 'wc'] as RoomType[] : ['living', 'kitchen-living', 'bedroom', 'kids', 'hall', 'storage'] as RoomType[]);
+    for (let n = 0; n < req.count; n++) extras.push({
+      id: `need-${req.id}-${n}`, type: req.type, rooms, scope: 'first', mandatory: true, placement: req.type === 'dining' || req.type === 'play-rug' ? 'free' : 'wall', contact: 'back',
+      size: { w: req.w ?? CATALOG[req.type].w, d: req.d ?? CATALOG[req.type].d }, weights: { corner: 1, nearWindow: req.type === 'desk' ? 3 : 0 }, requirement: req,
+    });
+  }
+  for (let n = 0; n < needs.workplaces; n++) extras.push({ id: `adult-desk-${n}`, type: 'desk', rooms: ['bedroom', 'living', 'kitchen-living', 'other'], scope: 'first', mandatory: true, placement: 'wall', contact: 'back', weights: { nearWindow: 3, corner: 1 }, adultWorkplaces: needs.workplaces });
+  return { key, ...meta[key], rules: [...allowed.filter(r => r.mandatory), ...extras.filter(r => !needs.forbidden.includes(r.type)), ...allowed.filter(r => !r.mandatory)] };
+
 }

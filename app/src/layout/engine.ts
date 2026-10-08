@@ -9,6 +9,7 @@ import { planContext, type PlanContext } from '../validate/context';
 import { checkItem, reachability } from '../validate/validator';
 import { backRot, freeSpans, overlaps, pointAt, roomEdges, sideRots, type RoomEdge } from './edges';
 import { Occupancy, type Layer } from './occupancy';
+import { matchesRequirement } from '../brief/requirements';
 import { buildScenario, type ItemRule, type Scenario } from './templates';
 
 export interface Placement { ruleId: string; roomId: string; edge: number | null; rot: Rot; x: number; y: number }
@@ -32,6 +33,8 @@ export interface EngineInput {
   scenario: ScenarioKey;
   /** Размещения ключевых предметов из уже построенных вариантов — для разнообразия. */
   avoid?: Placement[];
+  fixed?: FurnitureItem[];
+  roomIds?: string[];
   beamWidth?: number;
   seed?: number;
 }
@@ -322,16 +325,22 @@ export function runEngine(input: EngineInput): EngineResult {
   let seed = input.seed ?? 0;
   const jitter = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
 
-  let states: State[] = [{ items: [], placements: [], skipped: [], score: 0, incomplete: false }];
+  const fixed = structuredClone(input.fixed ?? []);
+  const fixedIds = new Set(fixed.map(i => i.id));
+  let states: State[] = [{ items: fixed, placements: [], skipped: [], score: 0, incomplete: false }];
 
   for (const rule of scenario.rules) {
-    const typed = rule.rooms.flatMap((t) => g.rooms.filter((r) => r.type === t));
+    const typed = rule.rooms.flatMap((t) => g.rooms.filter((r) => r.type === t && (!input.roomIds || input.roomIds.includes(r.id))));
     if (!typed.length) continue;
     const roomGroups: Room[][] = rule.scope === 'each' ? typed.map((r) => [r]) : [typed];
 
     for (const group of roomGroups) {
       const next: State[] = [];
       for (const state of states) {
+        const satisfied = rule.requirement ? state.items.filter(i => matchesRequirement(i, rule.requirement!, g)).length >= rule.requirement.count
+          : rule.adultWorkplaces !== undefined ? state.items.filter(i => i.type === 'desk' && g.rooms.some(r => r.id === i.roomId && r.type !== 'kids')).length >= rule.adultWorkplaces
+          : state.items.some(i => fixedIds.has(i.id) && i.type === rule.type && group.some(r => r.id === i.roomId));
+        if (satisfied) { next.push(state); continue; }
         const dyn = new Dynamic(st, state.items, rules);
         const baseBad = reachBad(ctx, state.items, rules);
         let found: Candidate[] = [];
@@ -341,7 +350,7 @@ export function runEngine(input: EngineInput): EngineResult {
           const info = roomInfo(st, room);
           const roomBonus = (group.length - ri - 1) * 3; // предпочтение порядка помещений в правиле
           const anchorRule = rule.anchor;
-          const anchor = anchorRule ? state.items.find((i) => i.ruleId === anchorRule && (rule.placement !== 'attach' || i.roomId === room.id)) ?? null : null;
+          const anchor = anchorRule ? state.items.find((i) => (i.ruleId === anchorRule || fixedIds.has(i.id) && i.type === ({ kitchen: 'kitchen-run', bed: 'bed-double', sofa: 'sofa' } as Record<string, string>)[anchorRule]) && (rule.placement !== 'attach' || i.roomId === room.id)) ?? null : null;
           for (const mode of modes) {
             if (mode === 'attach' && !anchor) continue;
             for (const size of sizesFor(rule)) {

@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import { SceneImage } from '../scene/SceneImage';
 import { sceneSettings } from '../scene/types';
 import { EMPTY_CATALOG } from '../scene/catalog';
-import { geometryHash } from '../geometry/plan';
+import { variantCurrent } from '../brief/requirements';
 import { isReady } from '../layout/variants';
 import '../scene/scene.css';
 import { useStore } from '../state/store';
@@ -18,7 +18,7 @@ const mln = (v: number) => (v / 1e6).toFixed(2).replace('.', ',');
 export function ClientScreen({ back }: { back: () => void }) {
   const { project, rules } = useStore();
   const settings = useMemo(() => ({ ...sceneSettings(project.concept.scene3d), fullWalls: false, showCeiling: false }), [project.concept.scene3d]);
-  const v = project.variants.find((x) => x.id === project.selectedVariantId && x.approved && isReady(x) && x.geometryHash === geometryHash(project.geometry));
+  const v = project.variants.find((x) => x.id === project.selectedVariantId && x.approved && isReady(x) && variantCurrent(x, project));
   if (!v)
     return (
       <div className="view">
@@ -35,7 +35,7 @@ export function ClientScreen({ back }: { back: () => void }) {
   const rooms = g.rooms.filter((r) => ['living', 'bedroom', 'kids', 'kitchen-living'].includes(r.type)).length;
   const vb = planBounds(g, 350);
   const c = project.concept;
-  const variants = project.variants.filter(x => isReady(x) && x.geometryHash === geometryHash(g)).slice(0, 3);
+  const variants = project.variants.filter(x => isReady(x) && variantCurrent(x, project)).slice(0, 3);
 
   return (
     <div className="view">

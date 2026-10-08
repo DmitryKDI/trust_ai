@@ -1,3 +1,4 @@
+import { requirementIssues } from '../brief/requirements';
 // Валидатор расстановки. Чистые функции: вход — геометрия, предметы, правила, бриф.
 import type { Brief, FurnitureItem, Issue, PlanGeometry, Pt } from '../model/types';
 import { bedSideStrips, CATALOG, footprint, localRect, serviceZones, sinkCenter } from '../furniture/catalog';
@@ -147,7 +148,7 @@ export interface ValidateOptions {
 }
 
 /** Полная проверка варианта. */
-export function validate(g: PlanGeometry, items: FurnitureItem[], rules: Rules, brief: Pick<Brief, 'bedAccessBothSides'>, opts: ValidateOptions = {}): ValidationResult {
+export function validate(g: PlanGeometry, items: FurnitureItem[], rules: Rules, brief: Pick<Brief, 'bedAccessBothSides'> & Partial<Brief>, opts: ValidateOptions = {}): ValidationResult {
   const ctx = planContext(g, rules);
   const issues: Issue[] = [];
   if (opts.expectedHash && opts.expectedHash !== ctx.hash)
@@ -180,7 +181,7 @@ export function validate(g: PlanGeometry, items: FurnitureItem[], rules: Rules, 
 
   // Проходимость.
   const reach = reachability(ctx, items, rules);
-  issues.push(...reach.issues);
+  issues.push(...reach.issues, ...requirementIssues(g, items, brief));
   return { issues: dedupe(issues), reachableRooms: reach.reachableRooms, unreachableRooms: reach.unreachableRooms };
 }
 

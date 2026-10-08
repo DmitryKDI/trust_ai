@@ -129,6 +129,7 @@ export interface Brief {
   bedAccessBothSides: boolean;
   diningSeats: number;
   preferShower: boolean;
+  layoutNeeds?: LayoutNeeds;
 }
 
 export type ScenarioKey = 'space' | 'storage' | 'family';
@@ -138,6 +139,17 @@ export type FurnitureType =
   | 'sofa' | 'armchair' | 'coffee-table' | 'tv-unit'
   | 'dining' | 'desk' | 'kitchen-run' | 'fridge'
   | 'bathtub' | 'shower' | 'toilet' | 'washbasin' | 'washer' | 'shoe-cabinet' | 'play-rug' | 'shelving';
+
+export interface FurnitureRequirement {
+  id: string; type: FurnitureType; count: number; roomType: RoomType | null;
+  /** Полный габарит предмета до поворота, мм. */
+  w?: number; d?: number;
+}
+export interface LayoutNeeds {
+  workplaces: number;
+  required: FurnitureRequirement[];
+  forbidden: FurnitureType[];
+}
 
 export type Rot = 0 | 90 | 180 | 270;
 
@@ -159,6 +171,7 @@ export interface FurnitureItem {
   roomId: string | null;
   ruleId: string | null;
   movedByManager: boolean;
+  locked?: boolean;
   modules?: KitchenModule[];
   seats?: number;
 }
@@ -178,6 +191,7 @@ export interface Variant {
   title: string;
   idea: string;
   geometryHash: string;
+  inputsHash?: string;
   items: FurnitureItem[];
   benefits: string[];
   compromises: string[];

@@ -3,6 +3,9 @@ import { scaleGeometry } from '../editor/ops';
 import { changeFurnitureType, resizeFurniture } from '../editor/furniture';
 import { FurnitureHandles } from '../editor/FurnitureHandles';
 import { furnitureSnapContext, resizeFurnitureAtHandle, snapFurnitureMove, snapFurnitureResize, type ResizeHandle, type SnapGuide, type FurnitureSnapContext } from '../editor/furniture-interaction';
+import { planningInputsHash, requirementStatus, variantCurrent } from '../brief/requirements';
+import { furnitureMeasurements } from '../editor/measurements';
+import { MeasurementGuides } from '../editor/Measurements';
 import { ownsShortcut } from '../editor/keyboard';
 import { SizeInput } from '../editor/SizeInput';
 import type { FurnitureItem, FurnitureType, PlanStyle, Project, RoomType, Rot, Variant } from '../model/types';
@@ -32,28 +35,28 @@ export function VariantsScreen({ next, back }: { next: () => void; back: () => v
   const [rejected, setRejected] = useState<Rejected[]>([]);
   const [openId, setOpenId] = useState<string | null>(project.selectedVariantId ?? project.variants[0]?.id ?? null);
   const hash = useMemo(() => geometryHash(g), [g]);
-  const stale = project.variants.some((v) => v.geometryHash !== hash);
+  const stale = project.variants.some((v) => v.geometryHash !== hash || !variantCurrent(v, project));
 
   const [rebuild, setRebuild] = useState(0);
   useEffect(() => { if (rebuild) build(); }, [rebuild]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const build = async (target?: Variant) => {
+  const build = async (target?: Variant, roomId?: string) => {
     if (busy) return;
     setBusy(true);
     setErr(null);
     const stamp = buildStamp(project);
     try {
-      const res = await runVariantsInWorker(g, project.brief, project.ruleOverrides, target ? [target.scenario] : undefined, { seed: crypto.getRandomValues(new Uint32Array(1))[0] || 1, previous: project.variants.flatMap(v => v.items) });
+      const res = await runVariantsInWorker(g, project.brief, project.ruleOverrides, target ? [target.scenario] : undefined, { seed: crypto.getRandomValues(new Uint32Array(1))[0] || 1, previous: project.variants.flatMap(v => v.items), fixedByScenario: Object.fromEntries((target ? [target] : project.variants).map(v => [v.scenario, v.items.filter(i => i.locked || !!roomId && i.roomId !== roomId)])), roomIds: roomId ? [roomId] : undefined });
       if (buildStamp(currentProject.current) !== stamp) { setErr('План, бриф или варианты изменились во время сборки. Запустите пересборку ещё раз.'); return; }
       if (target) {
         const replacement = res.variants[0];
-        if (!replacement || layoutSignature(replacement.items) === layoutSignature(target.items) || project.variants.some(v => v.id !== target.id && layoutSignature(v.items) === layoutSignature(replacement.items))) {
+        if (!replacement || (layoutSignature(replacement.items) === layoutSignature(target.items) && variantCurrent(target, project)) || project.variants.some(v => v.id !== target.id && layoutSignature(v.items) === layoutSignature(replacement.items))) {
           setErr('Другую расстановку для этого варианта найти не удалось. Измените задачи клиента или размеры мебели и повторите.'); return;
         }
         update(p => ({ ...p, variants: p.variants.map(v => v.id === target.id ? replacement : v), selectedVariantId: p.selectedVariantId === target.id ? null : p.selectedVariantId, review: p.review?.variantId === target.id ? null : p.review }));
         setOpenId(replacement.id);
       } else {
-        if (project.variants.length && res.variants.every(v => project.variants.some(old => layoutSignature(old.items) === layoutSignature(v.items)))) {
+        if (project.variants.length && !stale && res.variants.every(v => project.variants.some(old => layoutSignature(old.items) === layoutSignature(v.items)))) {
           setErr('Новые допустимые расстановки не найдены. Текущие варианты сохранены.'); return;
         }
         update(p => ({ ...p, variants: res.variants, selectedVariantId: null, review: null }));
@@ -78,7 +81,7 @@ export function VariantsScreen({ next, back }: { next: () => void; back: () => v
     );
 
   const open = project.variants.find((v) => v.id === openId) ?? null;
-  const ready = project.variants.filter(isReady);
+  const ready = project.variants.filter(v => isReady(v) && variantCurrent(v, project));
 
   return (
     <div className="view">
@@ -92,7 +95,7 @@ export function VariantsScreen({ next, back }: { next: () => void; back: () => v
             {(Object.keys(STYLE_NAMES) as PlanStyle[]).filter((k) => k !== 'original' || project.planImage).map((k) => <option key={k} value={k}>{STYLE_NAMES[k]}</option>)}
           </select>
         </label>
-        {stale && <span className="badge warn">Геометрия изменилась — варианты устарели</span>}
+        {stale && <span className="badge warn">План, бриф или правила изменились — перепроверьте варианты</span>}
         {project.variants.length > 0 && <span className="muted small">Готовых к показу: {ready.length} из {project.variants.length}</span>}
       </div>
       {err && <div className="notice err">Ошибка сборки: {err}</div>}
@@ -131,7 +134,7 @@ export function VariantsScreen({ next, back }: { next: () => void; back: () => v
         </div>
       )}
 
-      {open && <VariantDetail key={open.id} v={open} />}
+      {open && <VariantDetail key={open.id} v={open} busy={busy} onRebuildRoom={roomId => void build(open, roomId)} />}
       {open && <ReferenceCompare v={open} />}
 
       <div className="actions">
@@ -145,13 +148,15 @@ export function VariantsScreen({ next, back }: { next: () => void; back: () => v
 }
 
 function StatusBadge({ v }: { v: Variant }) {
+  const { project } = useStore();
+  if (!variantCurrent(v, project)) return <span className="badge warn">Требуется повторная проверка</span>;
   const e = v.issues.filter((i) => i.severity === 'error').length;
   const w = v.issues.filter((i) => i.severity === 'warning').length;
   if (e) return <span className="badge err">Требует доработки: {e} {e === 1 ? 'проблема' : 'проблем'}</span>;
   return <span className={`badge ${w ? 'warn' : 'ok'}`}>Проверки пройдены{w ? ` · замечаний: ${w}` : ''}</span>;
 }
 
-function VariantDetail({ v }: { v: Variant }) {
+function VariantDetail({ v, busy, onRebuildRoom }: { v: Variant; busy: boolean; onRebuildRoom: (roomId: string) => void }) {
   const { project, update, rules } = useStore();
   const g = project.geometry;
   const [items, setItems] = useState<FurnitureItem[]>(v.items);
@@ -162,6 +167,8 @@ function VariantDetail({ v }: { v: Variant }) {
   const itemsRef = useRef(items);
   const [history, setHistory] = useState<{ past: FurnitureItem[][]; future: FurnitureItem[][] }>({ past: [], future: [] });
   const [snapping, setSnapping] = useState(true);
+  const [showDistances, setShowDistances] = useState(true);
+  const [roomToRebuild, setRoomToRebuild] = useState(g.rooms[0]?.id ?? '');
   const [guides, setGuides] = useState<SnapGuide[]>([]);
   const [dragging, setDragging] = useState(false);
   const [hl, setHl] = useState<string[]>([]);
@@ -174,12 +181,13 @@ function VariantDetail({ v }: { v: Variant }) {
   // Сохраняем правки и актуальные проверки в проект.
   useEffect(() => {
     if (dragging || deferred === v.items) return; // ничего не менялось
+      const physicalChange = layoutSignature(deferred) !== layoutSignature(v.items);
       const ex = explain(g, v.scenario, deferred, rules, project.brief, result.issues, []);
       update((p) => ({
         ...p,
-        variants: p.variants.map((x) => (x.id === v.id ? { ...x, items: deferred, issues: result.issues, benefits: ex.benefits, compromises: x.compromises.filter((c) => c.startsWith('Не поместилось')).concat(ex.compromises.filter((c) => !c.startsWith('Не поместилось'))), metrics: ex.metrics, editedByManager: true, approved: false } : x)),
-        selectedVariantId: p.selectedVariantId === v.id ? null : p.selectedVariantId,
-        review: p.selectedVariantId === v.id ? null : p.review,
+        variants: p.variants.map((x) => (x.id === v.id ? { ...x, items: deferred, issues: result.issues, benefits: ex.benefits, compromises: x.compromises.filter((c) => c.startsWith('Не поместилось')).concat(ex.compromises.filter((c) => !c.startsWith('Не поместилось'))), metrics: ex.metrics, editedByManager: true, approved: physicalChange ? false : x.approved } : x)),
+        selectedVariantId: physicalChange && p.selectedVariantId === v.id ? null : p.selectedVariantId,
+        review: physicalChange && p.selectedVariantId === v.id ? null : p.review,
       }));
   }, [deferred, dragging]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -191,7 +199,7 @@ function VariantDetail({ v }: { v: Variant }) {
   };
   const live = (next: FurnitureItem[]) => { itemsRef.current = next; setItems(next); };
   const record = (before: FurnitureItem[]) => setHistory(h => ({ past: [...h.past.slice(-99), before], future: [] }));
-  const changeItems = (fn: (list: FurnitureItem[]) => FurnitureItem[]) => { const before = itemsRef.current, next = fn(before); if (JSON.stringify(before) === JSON.stringify(next)) return; record(before); live(next); };
+  const changeItems = (fn: (list: FurnitureItem[]) => FurnitureItem[]) => { if (busy) return; const before = itemsRef.current, next = fn(before); if (JSON.stringify(before) === JSON.stringify(next)) return; record(before); live(next); };
   const undoItems = () => {
     if (drag.current) { live(drag.current.before); drag.current = null; setDragging(false); setGuides([]); return; }
     const before = history.past.at(-1); if (!before) return; const currentItems = itemsRef.current;
@@ -203,13 +211,15 @@ function VariantDetail({ v }: { v: Variant }) {
     if (e.button !== 0) return; e.stopPropagation();
     svgRef.current?.focus({ preventScroll: true });
     if (e.shiftKey) { setSelection(current => current.includes(it.id) ? current.filter(id => id !== it.id) : [...current, it.id]); return; }
-    const ids = selection.includes(it.id) ? selection : [it.id]; setSelection(ids);
+    const selected = selection.includes(it.id) ? selection : [it.id]; setSelection(selected);
+    if (it.locked || busy) return;
+    const ids = selected.filter(id => !itemsRef.current.find(i => i.id === id)?.locked);
     const p = toWorld(e), before = itemsRef.current;
     drag.current = { mode: 'move', id: it.id, ids, start: { x: p.x, y: p.y }, item: it, before, inverse: svgRef.current!.getScreenCTM()!.inverse(), context: furnitureSnapContext(g, before.filter(i => !ids.includes(i.id))), moved: false };
     setDragging(true); svgRef.current?.setPointerCapture(e.pointerId);
   };
   const onResizeDown = (e: RPE<SVGRectElement>, handle: ResizeHandle) => {
-    if (e.button !== 0 || !sel) return; e.preventDefault(); e.stopPropagation(); svgRef.current?.focus({ preventScroll: true });
+    if (e.button !== 0 || !sel || sel.locked || busy) return; e.preventDefault(); e.stopPropagation(); svgRef.current?.focus({ preventScroll: true });
     const p = toWorld(e), before = itemsRef.current;
     drag.current = { mode: 'resize', id: sel.id, ids: [sel.id], start: { x: p.x, y: p.y }, item: sel, before, inverse: svgRef.current!.getScreenCTM()!.inverse(), context: furnitureSnapContext(g, before.filter(i => i.id !== sel.id)), handle, moved: false };
     setDragging(true); svgRef.current?.setPointerCapture(e.pointerId);
@@ -238,10 +248,13 @@ function VariantDetail({ v }: { v: Variant }) {
 
   const selectedItems = items.filter(i => selection.includes(i.id));
   const sel = items.find(i => i.id === selId) ?? null;
+  const measurements = useMemo(() => sel && showDistances ? furnitureMeasurements(sel, furnitureSnapContext(g, items.filter(i => i.id !== sel.id))) : [], [sel, showDistances, g, items]);
+  const needsStatus = requirementStatus(g, items, project.brief);
+  const selectedLocked = selectedItems.some(i => i.locked);
   const commonType = selectedItems.length && selectedItems.every(i => i.type === selectedItems[0].type) ? selectedItems[0].type : null;
-  const patchSel = (p: Partial<FurnitureItem>) => changeItems(l => l.map(i => i.id === selId ? { ...i, ...p, movedByManager: true } : i));
-  const rotate = () => changeItems(l => l.map(i => selection.includes(i.id) ? { ...i, rot: ((i.rot + 90) % 360) as Rot, movedByManager: true } : i));
-  const remove = () => { if (selection.length) { changeItems(l => l.filter(i => !selection.includes(i.id))); setSelId(null); } };
+  const patchSel = (p: Partial<FurnitureItem>) => changeItems(l => l.map(i => i.id === selId && !i.locked ? { ...i, ...p, movedByManager: true } : i));
+  const rotate = () => changeItems(l => l.map(i => selection.includes(i.id) && !i.locked ? { ...i, rot: ((i.rot + 90) % 360) as Rot, movedByManager: true } : i));
+  const remove = () => { if (selection.length) { changeItems(l => l.filter(i => i.locked || !selection.includes(i.id))); setSelId(null); } };
   const addItem = (type: FurnitureType) => {
     const c = CATALOG[type];
     const room = g.rooms.filter((r) => r.type !== 'balcony').sort((a, b) => b.polygon.length - a.polygon.length)[0];
@@ -266,12 +279,20 @@ function VariantDetail({ v }: { v: Variant }) {
     return () => window.removeEventListener('keydown', k);
   });
 
-  const approve = () => update((p) => ({
-    ...p,
-    variants: p.variants.map((x) => ({ ...x, approved: x.id === v.id })),
-    selectedVariantId: v.id,
-    review: { variantId: v.id, approvedBy: p.manager || 'менеджер', approvedAt: new Date().toISOString(), note: '' },
-  }));
+  const recheck = () => update(p => {
+    if (dragging || v.geometryHash !== geometryHash(p.geometry)) return p;
+    const checked = validate(p.geometry, itemsRef.current, rules, p.brief, { expectedHash: v.geometryHash });
+    const ex = explain(p.geometry, v.scenario, itemsRef.current, rules, p.brief, checked.issues, []);
+    return { ...p, variants: p.variants.map(x => x.id === v.id ? { ...x, ...ex, items: itemsRef.current, issues: checked.issues, inputsHash: planningInputsHash(p.brief, rules), approved: false } : x), selectedVariantId: p.selectedVariantId === v.id ? null : p.selectedVariantId, review: p.review?.variantId === v.id ? null : p.review };
+  });
+  const approve = () => update(p => {
+    const current = p.variants.find(x => x.id === v.id);
+    if (!current || !variantCurrent(current, p) || dragging) return p;
+    const checked = validate(p.geometry, itemsRef.current, rules, p.brief, { expectedHash: v.geometryHash });
+    if (checked.issues.some(i => i.severity === 'error')) return p;
+    const ex = explain(p.geometry, v.scenario, itemsRef.current, rules, p.brief, checked.issues, []);
+    return { ...p, variants: p.variants.map(x => x.id === v.id ? { ...x, ...ex, items: itemsRef.current, issues: checked.issues, inputsHash: planningInputsHash(p.brief, rules), approved: true } : { ...x, approved: false }), selectedVariantId: v.id, review: { variantId: v.id, approvedBy: p.manager || 'менеджер', approvedAt: new Date().toISOString(), note: '' } };
+  });
   const current = project.variants.find((x) => x.id === v.id) ?? v;
   const shown = hl.length ? result.issues.filter((i) => i.itemIds.some((id) => hl.includes(id))) : result.issues;
 
@@ -281,14 +302,18 @@ function VariantDetail({ v }: { v: Variant }) {
         <PlanView ref={svgRef} g={g} items={items} issues={result.issues} mode="variant" wallImage={project.planImage} planStyle={project.planStyle} selectedIds={selection} viewBox={planBounds(g, 500)}
           onItemPointerDown={onItemDown} svgProps={{ tabIndex: 0, onPointerMove: onMove, onPointerUp: onUp, onPointerCancel: onCancel, onLostPointerCapture: () => { if (drag.current) onCancel(); }, onPointerDown: e => { svgRef.current?.focus({ preventScroll: true }); if (!e.shiftKey) setSelId(null); } }}>
           {guides.map((guide, index) => <path key={index} data-snap-guide={guide.kind} d={`M${guide.a.x} ${guide.a.y}L${guide.b.x} ${guide.b.y}`} stroke="#2f6f8f" strokeWidth={1.5} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" pointerEvents="none" />)}
-          {sel && <FurnitureHandles item={sel} radius={6 * mmPerPx()} onDown={onResizeDown} />}
+          {sel && !sel.locked && !busy && <FurnitureHandles item={sel} radius={6 * mmPerPx()} onDown={onResizeDown} />}
+          <MeasurementGuides measurements={measurements} unit={mmPerPx()} />
         </PlanView>
         <div className="actions" style={{ marginTop: 10 }}>
           <button className="btn secondary sm" disabled={!history.past.length} onClick={undoItems}>Отменить мебель</button>
           <button className="btn secondary sm" disabled={!history.future.length} onClick={redoItems}>Повторить мебель</button>
           <label className="check-inline"><input type="checkbox" checked={snapping} onChange={e => setSnapping(e.target.checked)} />Прилипание мебели</label>
+          <label className="check-inline"><input type="checkbox" checked={showDistances} onChange={e => setShowDistances(e.target.checked)} />Расстояния</label>
+          {selectedItems.length > 0 && <button className="btn secondary sm" onClick={() => changeItems(list => list.map(i => selection.includes(i.id) ? { ...i, locked: !selectedItems.every(x => x.locked) } : i))}>{selectedItems.every(i => i.locked) ? 'Снять закрепление' : 'Закрепить выбранную мебель'}</button>}
+          {selectedLocked && <span className="badge">Закреплённая мебель сохраняется при пересборке. Снимите закрепление для правки.</span>}
           {selectedItems.length > 1 && <span className="badge">Выбрано предметов: {selectedItems.length}</span>}
-          {commonType && <label className="field">Тип выбранной мебели<select value={commonType} onChange={e => { const type = e.target.value as FurnitureType; changeItems(list => list.map(i => selection.includes(i.id) ? changeFurnitureType(i, type) : i)); }}>{ADDABLE.map(type => <option key={type} value={type}>{CATALOG[type].name}</option>)}</select></label>}
+          {commonType && !selectedLocked && <label className="field">Тип выбранной мебели<select value={commonType} onChange={e => { const type = e.target.value as FurnitureType; changeItems(list => list.map(i => selection.includes(i.id) && !i.locked ? changeFurnitureType(i, type) : i)); }}>{ADDABLE.map(type => <option key={type} value={type}>{CATALOG[type].name}</option>)}</select></label>}
           {selectedItems.length > 1 && <><button className="btn secondary sm" onClick={rotate}>Повернуть выбранные (R)</button><button className="btn ghost sm" onClick={remove}>Удалить выбранные предметы</button></>}
           <label className="field" style={{ minWidth: 200 }}><span className="hint">Добавить предмет</span>
             <select value="" onChange={(e) => e.target.value && addItem(e.target.value as FurnitureType)}>
@@ -296,7 +321,7 @@ function VariantDetail({ v }: { v: Variant }) {
               {ADDABLE.map((t) => <option key={t} value={t}>{CATALOG[t].name}</option>)}
             </select>
           </label>
-          {sel && (
+          {sel && !sel.locked && (
             <>
               <span className="badge">{CATALOG[sel.type].name} {Math.round(sel.w)}×{Math.round(sel.d)}</span>
               <button className="btn secondary sm" onClick={rotate}>Повернуть (R)</button>
@@ -309,6 +334,9 @@ function VariantDetail({ v }: { v: Variant }) {
             </>
           )}
         </div>
+        {measurements.length > 0 && <ul className="list small" aria-label="Расстояния выбранного предмета">{measurements.map(m => <li key={m.id}>{m.label}: {m.mm} мм</li>)}</ul>}
+        <div className="actions"><label className="field">Комната для пересборки<select value={roomToRebuild} onChange={e => setRoomToRebuild(e.target.value)}>{g.rooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label><button className="btn secondary sm" disabled={busy || !roomToRebuild || dragging} onClick={() => onRebuildRoom(roomToRebuild)}>Пересобрать только эту комнату</button></div>
+        <p className="hint">Мебель в остальных комнатах и закреплённые предметы останутся на своих местах.</p>
         <p className="fineprint">Перетаскивайте мебель; Shift + щелчок — выбрать несколько; маркеры на сторонах и углах — изменить размер. Alt — временно без прилипания. Ctrl+Z — отменить правку мебели. Красная рамка — нарушение, жёлтая — замечание.</p>
       </div>
       <aside className="panel">
@@ -316,6 +344,8 @@ function VariantDetail({ v }: { v: Variant }) {
           <h3>{v.title}</h3>
           <p className="small muted" style={{ marginTop: 0 }}>{v.idea}</p>
           <span className={`badge ${errors.length ? 'err' : 'ok'}`}>{errors.length ? `Нарушений: ${errors.length}` : 'Проверки пройдены'}</span>
+          {!variantCurrent(current, project) && <div className="notice warn">Условия изменились. <button className="btn secondary sm" disabled={busy || dragging || v.geometryHash !== geometryHash(g)} onClick={recheck}>Проверить по текущему брифу</button></div>}
+          {needsStatus.length > 0 && <><h3>Требования клиента</h3><ul className="list" aria-label="Выполнение требований">{needsStatus.map(s => <li key={s.id}>{s.fulfilled ? '✓' : '✕'} {s.label}{s.needed ? `: ${s.actual} из ${s.needed}` : ''}</li>)}</ul></>}
           <h3 style={{ marginTop: 14 }}>Проверки</h3>
           <div className="issues">
             {!shown.length && <p className="muted small">Замечаний нет.</p>}
@@ -327,7 +357,7 @@ function VariantDetail({ v }: { v: Variant }) {
           </div>
           {hl.length > 0 && <button className="btn ghost sm" style={{ marginTop: 8 }} onClick={() => setHl([])}>Показать все</button>}
           <div className="actions">
-            <button className="btn" disabled={errors.length > 0 || current.approved} onClick={approve}>{current.approved ? 'Утверждён для клиента' : 'Утвердить для клиента'}</button>
+            <button className="btn" disabled={busy || dragging || !variantCurrent(current, project) || errors.length > 0 || current.approved} onClick={approve}>{current.approved ? 'Утверждён для клиента' : 'Утвердить для клиента'}</button>
           </div>
           {errors.length > 0 && <p className="muted small">Вариант с нарушениями нельзя показать клиенту: доработайте расстановку вручную.</p>}
         </div>

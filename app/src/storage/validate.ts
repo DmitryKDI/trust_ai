@@ -80,6 +80,13 @@ export function checkedProject(value: unknown): Project {
     else if (typeof v === 'boolean') bool(p.brief[k], k);
     else { num(p.brief[k], k, 0, 100); if (!Number.isInteger(p.brief[k])) fail(k); }
   }
+  if (p.brief.layoutNeeds !== undefined) {
+    const n = record(p.brief.layoutNeeds, 'требования брифа'); num(n.workplaces, 'рабочие места', 0, 4); if (!Number.isInteger(n.workplaces)) fail('рабочие места');
+    const required = arr(n.required, 'обязательные предметы', 12); ids(required);
+    required.forEach(r => { one(r.type, Object.keys(CATALOG), 'обязательный тип'); num(r.count, 'количество', 1, 6); if (!Number.isInteger(r.count)) fail('количество'); nullable(r.roomType, t => one(t, ROOM_TYPES.map(x => x[0]), 'комната требования')); if (r.w !== undefined) num(r.w, 'ширина требования', 100, 10000); if (r.d !== undefined) num(r.d, 'глубина требования', 100, 10000); });
+    if (required.reduce((s, r) => s + r.count, 0) > 24) fail('слишком много обязательных предметов');
+    const forbidden = arr(n.forbidden, 'запрещённые предметы', Object.keys(CATALOG).length); forbidden.forEach(t => one(t, Object.keys(CATALOG), 'запрет')); if (new Set(forbidden).size !== forbidden.length) fail('повторный запрет');
+  }
   const docs = arr(p.documents, 'документы', 20); ids(docs);
   docs.forEach(d => { str(d.name, 'имя файла', 1000); one(d.mime, DOCUMENT_MIMES, 'формат файла'); num(d.size, 'размер файла', 0, MAX_DOCUMENT_BYTES); num(d.pageCount, 'число страниц', 1, 100000); if (!Number.isInteger(d.pageCount)) fail('число страниц'); one(d.role, ['plan', 'reference'], 'роль файла'); str(d.addedAt, 'дата файла'); });
   checkedGeometry(p.geometry); page(p.referencePage);
@@ -88,9 +95,11 @@ export function checkedProject(value: unknown): Project {
   variants.forEach(v => {
     one(v.scenario, ['space', 'storage', 'family'], 'сценарий'); for (const k of ['title', 'idea', 'geometryHash']) str(v[k], k);
     for (const k of ['benefits', 'compromises', 'assumptions', 'changes']) texts(v[k], k);
+    if (v.inputsHash !== undefined) str(v.inputsHash, 'версия брифа и правил', 160);
     bool(v.approved, 'вариант'); bool(v.editedByManager, 'правки варианта');
     const items = arr(v.items, 'мебель', 500); ids(items); items.forEach(i => {
       one(i.type, Object.keys(CATALOG), 'тип мебели'); point(i); num(i.w, 'ширина', 1, 10000); num(i.d, 'глубина', 1, 10000); one(i.rot, [0, 90, 180, 270], 'поворот'); nullable(i.roomId, id); nullable(i.ruleId, id); bool(i.movedByManager, 'ручная мебель');
+      if (i.locked !== undefined) bool(i.locked, 'закрепление мебели');
       if (i.seats !== undefined) num(i.seats, 'места', 1, 100);
       if (i.modules !== undefined) arr(i.modules, 'модули', 100).forEach(m => { record(m, 'модуль'); one(m.kind, ['sink', 'hob', 'base', 'dishwasher', 'oven', 'tall'], 'тип модуля'); num(m.w, 'ширина модуля', 1, 10000); });
     });
