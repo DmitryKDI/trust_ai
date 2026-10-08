@@ -5,7 +5,7 @@ import { FurnitureHandles } from '../editor/FurnitureHandles';
 import { furnitureSnapContext, resizeFurnitureAtHandle, snapFurnitureMove, snapFurnitureResize, type ResizeHandle, type SnapGuide, type FurnitureSnapContext } from '../editor/furniture-interaction';
 import { planningInputsHash, requirementStatus, variantCurrent } from '../brief/requirements';
 import { furnitureMeasurements } from '../editor/measurements';
-import { MeasurementGuides } from '../editor/Measurements';
+import { MeasurementGuides } from '../editor/MeasurementGuides';
 import { ownsShortcut } from '../editor/keyboard';
 import { SizeInput } from '../editor/SizeInput';
 import type { FurnitureItem, FurnitureType, PlanStyle, Project, RoomType, Rot, Variant } from '../model/types';
