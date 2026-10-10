@@ -31,7 +31,7 @@ jobs:
       - run: npx vitest run --exclude tests/bench.test.ts --maxWorkers=2 --testTimeout=30000
       - run: npm run build
       - name: Desktop editing and persistence through the actual UI
-        run: npx playwright test e2e/editor-shortcuts.spec.ts e2e/manual-dimensions.spec.ts e2e/flow.spec.ts e2e/scene.spec.ts e2e/editor-interactions.spec.ts e2e/security.spec.ts e2e/planning-requirements.spec.ts --project=desktop --reporter=line --workers=1
+        run: npx playwright test e2e/editor-shortcuts.spec.ts e2e/manual-dimensions.spec.ts e2e/flow.spec.ts e2e/scene.spec.ts e2e/editor-interactions.spec.ts e2e/security.spec.ts e2e/planning-requirements.spec.ts e2e/quick-plan-navigation.spec.ts --project=desktop --reporter=line --workers=1
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

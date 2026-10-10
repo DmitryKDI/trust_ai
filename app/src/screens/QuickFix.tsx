@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as RPE } fr
 import type { Opening, PlanGeometry, Pt, Room, RoomType, Wall, WallKind } from '../model/types';
 import { uid } from '../model/defaults';
 import { useStore } from '../state/store';
+import { RecognitionLegend, RecognitionOverlay } from '../plan/RecognitionOverlay';
 import { PlanView, planBounds, polyPath } from '../plan/PlanView';
 import { geometryHash, usesRoomWalls } from '../geometry/plan';
 import { dist, pointInPolygon, type BBox } from '../geometry/poly';
@@ -16,9 +17,10 @@ import { SizeInput } from '../editor/SizeInput';
 import { doorAt, mergeRooms, newRoomFromImage, roomFromCorners, splitRoom, type ImageData8 } from '../editor/quickfix';
 import { ROOM_TYPES, roomName } from '../learning/model';
 
-type Tool = 'select' | 'add' | 'rect' | 'split' | 'merge' | 'door' | 'wall';
+type Tool = 'select' | 'pan' | 'add' | 'rect' | 'split' | 'merge' | 'door' | 'wall';
 
 const TOOLS: { id: Tool; label: string; key: string; hint: string }[] = [
+  { id: 'pan', key: 'H', label: 'Рука', hint: 'Перетаскивайте план мышью. Колесо — масштаб. В любом инструменте: пробел или средняя кнопка мыши — временно перемещать план.' },
   { id: 'select', key: 'V', label: 'Выбрать', hint: 'Щёлкните объект — внизу появятся действия. Delete — удалить; колесо мыши — масштаб.' },
   { id: 'add', key: 'A', label: 'Добавить комнату', hint: 'Щёлкните по свободному полу внутри пропущенного помещения (не по сантехнике и цифрам) — контур найдётся сам.' },
   { id: 'rect', key: 'N', label: 'Комната по углам', hint: 'Два щелчка — противоположные углы помещения (удобно для санузлов с сантехникой).' },
@@ -50,8 +52,15 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
   const [msg, setMsg] = useState<string | null>(null);
   const [changed, setChanged] = useState(false);
   const [view, setView] = useState<BBox | null>(null);
+  const [showRecognition, setShowRecognition] = useState(true);
+  const [originalOnly, setOriginalOnly] = useState(false);
   const rootRef = useRef<HTMLDetailsElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  const pan = useRef<{ pointerId: number; start: Pt; view: BBox; inverse: DOMMatrix } | null>(null);
+  const [panning, setPanning] = useState(false);
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  const spaceDown = useRef(false);
+  const suppressClick = useRef(false);
   const pixels = useRef<{ data: ImageData8; mmPerPx: number } | null>(null);
 
   // Пиксели исходной картинки — для «Добавить комнату».
@@ -71,6 +80,7 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
     im.src = img.url;
   }, [img]);
 
+  const showOriginal = originalOnly && !!img;
   const vb = view ?? planBounds(g, 800);
   const toWorld = (e: { clientX: number; clientY: number }): Pt => {
     const svg = svgRef.current!;
@@ -82,6 +92,7 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
 
   const onWheel = useCallback((e: WheelEvent) => {
     e.preventDefault();
+    if (pan.current) return;
     const svg = svgRef.current!;
     const pt = svg.createSVGPoint();
     pt.x = e.clientX; pt.y = e.clientY;
@@ -99,10 +110,18 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
     return () => svg.removeEventListener('wheel', onWheel);
   }, [onWheel]);
 
+  const stopPan = () => {
+    const gesture = pan.current; pan.current = null; setPanning(false);
+    if (gesture && svgRef.current?.hasPointerCapture(gesture.pointerId)) svgRef.current.releasePointerCapture(gesture.pointerId);
+  };
+
   // Ctrl+Z / Ctrl+Y и Esc (сбросить начатое действие).
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if (!ownsShortcut(rootRef.current, e)) return;
+      if (e.code === 'Space' && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); spaceDown.current = true; setSpaceHeld(true); return; }
+      if (pan.current) { if (e.key === 'Escape') { e.preventDefault(); stopPan(); } return; }
+      if (originalOnly && img) { if (e.key === 'Escape') { e.preventDefault(); setOriginalOnly(false); } return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
         if (!e.shiftKey && draft.length) setDraft(d => d.slice(0, -1));
@@ -118,10 +137,15 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
       }
       if (e.key === 'Shift' && tool === 'wall' && draft.length && lastPointer.current) setCursor(wallPoint(lastPointer.current, true));
     };
-    const up = (e: KeyboardEvent) => { if (e.key === 'Shift' && lastPointer.current) setCursor(wallPoint(lastPointer.current, false)); };
+    const up = (e: KeyboardEvent) => {
+      if (e.code === 'Space') { spaceDown.current = false; setSpaceHeld(false); }
+      if (e.key === 'Shift' && lastPointer.current) setCursor(wallPoint(lastPointer.current, false));
+    };
+    const blur = () => { spaceDown.current = false; setSpaceHeld(false); stopPan(); };
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
-    return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); };
+    window.addEventListener('blur', blur);
+    return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); window.removeEventListener('blur', blur); };
   });
 
   /** Правка с историей (отмена) и сразу утверждённая: варианты пересобираются по кнопке. */
@@ -149,7 +173,16 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
   const roomAt = (p: Pt) => g.rooms.find((r) => pointInPolygon(p, r.polygon)) ?? null;
 
   const onDown = (e: RPE<SVGSVGElement>) => {
-    svgRef.current?.focus({ preventScroll: true });
+    const svg = svgRef.current; svg?.focus({ preventScroll: true });
+    if (pan.current || !e.isPrimary) return;
+    suppressClick.current = false;
+    if (e.button === 1 || e.button === 0 && (tool === 'pan' || spaceDown.current || originalOnly && !!img)) {
+      const matrix = svg?.getScreenCTM(); if (!svg || !matrix) return;
+      e.preventDefault();
+      suppressClick.current = true;
+      pan.current = { pointerId: e.pointerId, start: { x: e.clientX, y: e.clientY }, view: vb, inverse: matrix.inverse() };
+      setPanning(true); setCursor(null); svg.setPointerCapture(e.pointerId); return;
+    }
     if (e.button !== 0 || tool === 'select' || tool === 'merge') return;
     const p = toWorld(e);
     if (tool === 'wall') {
@@ -208,7 +241,24 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
     }
   };
 
+  const onMove = (e: RPE<SVGSVGElement>) => {
+    const gesture = pan.current;
+    if (gesture) {
+      if (e.pointerId !== gesture.pointerId) return;
+      e.preventDefault();
+      const x = e.clientX - gesture.start.x, y = e.clientY - gesture.start.y;
+      const dx = gesture.inverse.a * x + gesture.inverse.c * y, dy = gesture.inverse.b * x + gesture.inverse.d * y;
+      const v = gesture.view;
+      setView({ minX: v.minX - dx, maxX: v.maxX - dx, minY: v.minY - dy, maxY: v.maxY - dy });
+      return;
+    }
+    const point = toWorld(e); lastPointer.current = point;
+    setCursor(tool === 'pan' || spaceDown.current ? null : tool === 'wall' ? wallPoint(point, e.shiftKey) : point);
+  };
+  const onUp = (e: RPE<SVGSVGElement>) => { if (pan.current?.pointerId === e.pointerId) stopPan(); };
+
   const onElement = (kind: ElementSelection['kind'], id: string, event: React.MouseEvent<SVGElement>) => {
+    if (tool === 'pan' || spaceDown.current || suppressClick.current) return;
     if (tool === 'merge' && kind === 'room') {
       if (!first) { setFirst(id); setMsg('Теперь щёлкните вторую часть.'); return; }
       if (first === id) return;
@@ -235,15 +285,16 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
   const setWall = (patch: Partial<Wall>) => fix(x => ({ ...x, walls: x.walls.map(w => w.id === wall!.id ? { ...w, ...patch, source: 'manual', verifiedByManager: true } : w) }));
   const setRoom = (patch: Partial<Room>) => fix((x) => ({ ...x, rooms: x.rooms.map((r) => (r.id === room!.id ? { ...r, ...patch, verifiedByManager: true } : r)) }));
   const setOpening = (fn: (o: Opening, all: Opening[]) => Opening[]) => fix((x) => ({ ...x, openings: fn(x.openings.find((o) => o.id === opening!.id)!, x.openings) }));
+  const shownGeometry = originalOnly && img ? { ...g, walls: [], openings: [], rooms: [], fixed: [], wetZones: [] } : g;
   const firstRoom = first ? g.rooms.find((r) => r.id === first) : null;
 
   return (
     <details ref={rootRef} className="card" style={{ marginTop: 14 }} open>
       <summary style={{ margin: 0 }}>Быстрая правка плана</summary>
-      <p className="muted small">Проверьте план поверх оригинала. Ошибки распознавания правятся щелчком; Enter — завершить стены; Esc — отменить рисование; Shift + щелчок — выбрать несколько; Delete — удалить выбранные; Ctrl+Z — отменить.</p>
+      <p className="muted small">Проверьте план поверх оригинала. Ошибки распознавания правятся щелчком; Enter — завершить стены; Esc — отменить рисование; Shift + щелчок — выбрать несколько; Delete — удалить выбранные; Ctrl+Z — отменить. Рука (H), пробел или средняя кнопка мыши — двигать план.</p>
       <div className="toolbar" role="toolbar" aria-label="Быстрая правка">
         {TOOLS.map((t) => (
-          <button key={t.id} className={`tool ${tool === t.id ? 'on' : ''}`} title={`${t.hint} (${t.key})`} disabled={t.id === 'add' && !img}
+          <button key={t.id} className={`tool ${tool === t.id ? 'on' : ''}`} aria-pressed={tool === t.id} title={`${t.hint} (${t.key})`} disabled={t.id === 'add' && !img}
             onClick={() => { setTool(t.id); setDraft([]); setSel(null); setFirst(null); setMsg(null); }}>{t.label}</button>
         ))}
         <button className="tool" onClick={undo} disabled={!canUndo}>Отменить</button>
@@ -261,22 +312,30 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
         <label className="field">Створки новой двери<select value={doorLeaves} onChange={e => setDoorLeaves(Number(e.target.value) as 1 | 2)}><option value={1}>Одна створка</option><option value={2}>Две равные створки</option></select></label>
       </div>}
       {g.rooms.length > 0 && (g.walls.length > 0 || tool === 'wall') && <label className="check-inline"><input type="checkbox" checked={usesRoomWalls(g)} onChange={e => fix(x => ({ ...x, wallMode: e.target.checked ? 'rooms' : 'explicit' }), 'Основа стен изменена. Пересоберите варианты.')} />Использовать границы зон как основу стен</label>}
+      <div className="actions" style={{ marginTop: 10 }}>
+        <label className="check-inline"><input type="checkbox" checked={showRecognition} disabled={originalOnly && !!img} onChange={e => setShowRecognition(e.target.checked)} />Подсветка найденных и ручных элементов</label>
+        {img && <label className="check-inline"><input type="checkbox" checked={originalOnly} onChange={e => { stopPan(); setOriginalOnly(e.target.checked); setDraft([]); setFirst(null); setSel(null); }} />Только исходный план</label>}
+      </div>
+      {showRecognition && !showOriginal && <RecognitionLegend geometry={g} />}
+      <p className="hint">Синий пунктир — найдено программой, зелёный — проверено, оранжевый — вручную. Сравните с исходником: непомеченные детали нужно добавить.</p>
+      {usesRoomWalls(g) && !g.walls.length && <p className="hint">Стены построены по границам найденных зон. Отдельные перегородки пока не выделены — проверьте и дорисуйте их.</p>}
       <div className="canvas-wrap qf-canvas">
-        <PlanView ref={svgRef} g={g} mode="editor" viewBox={vb} selectedIds={selection.map(s => s.id)} labelScale={1.8}
-          underlay={img ? { url: img.url, widthMm: img.widthMm, heightMm: img.heightMm, opacity: 0.45 } : null}
+        <PlanView ref={svgRef} g={shownGeometry} mode="editor" viewBox={vb} selectedIds={selection.map(s => s.id)} labelScale={1.8}
+          underlay={img ? { url: img.url, widthMm: img.widthMm, heightMm: img.heightMm, opacity: showOriginal ? 1 : 0.65 } : null}
           onElementClick={onElement}
-          svgProps={{ tabIndex: 0, onPointerDown: onDown, onPointerMove: e => { const p = toWorld(e); lastPointer.current = p; setCursor(tool === 'wall' ? wallPoint(p, e.shiftKey) : p); }, style: { cursor: tool === 'select' || tool === 'merge' ? 'pointer' : 'crosshair' } }}>
-          {tool === 'wall' && draft.length > 1 && <path data-wall-draft="true" d={'M' + draft.map(q => `${q.x} ${q.y}`).join('L')} fill="none" stroke="#d2691e" strokeWidth={2} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
-          {tool === 'wall' && draft.length > 0 && cursor && <path data-wall-preview="true" d={`M${draft[draft.length - 1].x} ${draft[draft.length - 1].y}L${cursor.x} ${cursor.y}`} stroke="#d2691e" strokeWidth={2} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
-          {room && <path d={polyPath(room.polygon)} fill="rgba(210,105,30,.12)" stroke="#d2691e" strokeWidth={3} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
-          {firstRoom && <path d={polyPath(firstRoom.polygon)} fill="rgba(47,111,143,.15)" stroke="#2f6f8f" strokeWidth={3} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
-          {opening && <path d={`M${opening.a.x} ${opening.a.y}L${opening.b.x} ${opening.b.y}`} stroke="#d2691e" strokeWidth={8} strokeLinecap="round" vectorEffect="non-scaling-stroke" pointerEvents="none" />}
-          {tool === 'rect' && draft.length === 1 && <circle cx={draft[0].x} cy={draft[0].y} r={(vb.maxX - vb.minX) / 120} fill="none" stroke="#d2691e" strokeWidth={2} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
-          {draft.map((q, i) => <circle key={i} cx={q.x} cy={q.y} r={(vb.maxX - vb.minX) / 150} fill="#d2691e" pointerEvents="none" />)}
-          {tool === 'select' && <GeometryHandles key={sel?.id ?? 'none'} geometry={g} selection={sel} radius={6 * mmPerPx()} onChange={fix} onError={setMsg} />}
-          {tool === 'wall' && draft.length >= 3 && cursor && dist(cursor, draft[0]) < 1 && <circle data-closure-snap="true" cx={draft[0].x} cy={draft[0].y} r={10 * mmPerPx()} fill="none" stroke="#2f6f8f" strokeWidth={2} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
+          svgProps={{ tabIndex: 0, onPointerDown: onDown, onPointerMove: onMove, onPointerUp: onUp, onPointerCancel: onUp, onLostPointerCapture: onUp, style: { cursor: panning ? 'grabbing' : tool === 'pan' || spaceHeld || originalOnly && !!img ? 'grab' : tool === 'select' || tool === 'merge' ? 'pointer' : 'crosshair', userSelect: 'none', touchAction: 'none' } }}>
+          {showRecognition && !showOriginal && <RecognitionOverlay geometry={g} />}
+          {!showOriginal && tool === 'wall' && draft.length > 1 && <path data-wall-draft="true" d={'M' + draft.map(q => `${q.x} ${q.y}`).join('L')} fill="none" stroke="#d2691e" strokeWidth={2} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
+          {!showOriginal && tool === 'wall' && draft.length > 0 && cursor && <path data-wall-preview="true" d={`M${draft[draft.length - 1].x} ${draft[draft.length - 1].y}L${cursor.x} ${cursor.y}`} stroke="#d2691e" strokeWidth={2} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
+          {!showOriginal && room && <path d={polyPath(room.polygon)} fill="rgba(210,105,30,.12)" stroke="#d2691e" strokeWidth={3} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
+          {!showOriginal && firstRoom && <path d={polyPath(firstRoom.polygon)} fill="rgba(47,111,143,.15)" stroke="#2f6f8f" strokeWidth={3} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
+          {!showOriginal && opening && <path d={`M${opening.a.x} ${opening.a.y}L${opening.b.x} ${opening.b.y}`} stroke="#d2691e" strokeWidth={8} strokeLinecap="round" vectorEffect="non-scaling-stroke" pointerEvents="none" />}
+          {!showOriginal && tool === 'rect' && draft.length === 1 && <circle cx={draft[0].x} cy={draft[0].y} r={(vb.maxX - vb.minX) / 120} fill="none" stroke="#d2691e" strokeWidth={2} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
+          {!showOriginal && draft.map((q, i) => <circle key={i} cx={q.x} cy={q.y} r={(vb.maxX - vb.minX) / 150} fill="#d2691e" pointerEvents="none" />)}
+          {!showOriginal && tool === 'select' && !spaceHeld && !panning && <GeometryHandles key={sel?.id ?? 'none'} geometry={g} selection={sel} radius={6 * mmPerPx()} onChange={fix} onError={setMsg} />}
+          {!showOriginal && tool === 'wall' && draft.length >= 3 && cursor && dist(cursor, draft[0]) < 1 && <circle data-closure-snap="true" cx={draft[0].x} cy={draft[0].y} r={10 * mmPerPx()} fill="none" stroke="#2f6f8f" strokeWidth={2} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
         </PlanView>
-        <div className="canvas-hint">{msg ?? TOOLS.find((t) => t.id === tool)!.hint}</div>
+        <div className="canvas-hint">{originalOnly && img ? 'Исходный план: перетаскивайте мышью, колесо — масштаб. Выключите «Только исходный план», чтобы вернуться к правке.' : msg ?? TOOLS.find((t) => t.id === tool)!.hint}</div>
       </div>
 
       <BatchProperties geometry={g} selection={selection} onChange={fix} onDelete={removeSelected} />
