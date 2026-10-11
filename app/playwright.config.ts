@@ -7,6 +7,7 @@ const browser = chromium ? { launchOptions: { executablePath: chromium } } : { c
 
 export default defineConfig({
   testDir: 'e2e',
+  testIgnore: 'desktop-app.spec.ts',
   timeout: 120_000,
   use: { ...browser, baseURL: 'http://127.0.0.1:5190', headless: true },
   webServer: { command: 'npm run dev', url: 'http://127.0.0.1:5190', reuseExistingServer: true, timeout: 60_000 },

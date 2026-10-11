@@ -15,6 +15,7 @@ import { RulesModal } from './screens/Rules';
 import { MAX_BACKUP_BYTES } from './storage/validate';
 import { ErrorBoundary } from './state/ErrorBoundary';
 import { clearSourceCache } from './state/useSource';
+import { isDesktop } from './desktop';
 
 export const STEPS = ['Проект', 'Загрузка', 'Бриф', 'Разметка', 'Варианты', 'Мини-концепция', 'Для клиента'] as const;
 
@@ -70,7 +71,7 @@ function Workspace({ onClose }: { onClose: () => void }) {
           <div><strong>{project.alias || 'Без названия'}</strong> · {STEPS[step]}</div>
           <div className="counts">
             <span className={`badge ${g.approved ? 'ok' : 'warn'}`}>{g.approved ? 'Геометрия утверждена' : 'Геометрия не утверждена'}</span>
-            <span className={`badge ${saveError ? 'warn' : ''}`}>{saveError ? 'Не сохранено' : saving ? 'Сохранение…' : 'Сохранено в браузере'}</span>
+            <span className={`badge ${saveError ? 'warn' : ''}`}>{saveError ? 'Не сохранено' : saving ? 'Сохранение…' : isDesktop ? 'Сохранено на компьютере' : 'Сохранено в браузере'}</span>
             <button className="btn ghost sm no-print" onClick={() => setRulesOpen(true)}>Правила</button>
             <button className="btn ghost sm no-print" onClick={() => { void flushSave().then(onClose).catch(() => {}); }}>Все проекты</button>
           </div>
@@ -110,7 +111,7 @@ function Projects({ onOpen }: { onOpen: (p: Project) => void }) {
     a.href = url;
     a.download = `${p.alias || 'project'}.trust-plan.json`;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   return (
@@ -119,7 +120,7 @@ function Projects({ onOpen }: { onOpen: (p: Project) => void }) {
       <div className="view">
         <div className="eyebrow">Предпродажная концепция</div>
         <h1 className="heading">Проекты</h1>
-        <p className="lead">От плана квартиры до проверенных вариантов расстановки и аккуратной страницы для клиента. Проекты хранятся в этом браузере; сделайте резервную копию в JSON, чтобы перенести их.</p>
+        <p className="lead">От плана квартиры до проверенных вариантов расстановки и аккуратной страницы для клиента. {isDesktop ? 'Проекты хранятся на этом компьютере. Для переноса из прежней версии сохраните в ней резервную копию проекта и импортируйте JSON здесь.' : 'Проекты хранятся в этом браузере; сделайте резервную копию в JSON, чтобы перенести их.'}</p>
         <div className="grid2">
           <section className="card">
             <h2>Новый проект</h2>
@@ -147,7 +148,7 @@ function Projects({ onOpen }: { onOpen: (p: Project) => void }) {
                   <div className="actions" style={{ margin: 0 }}>
                     <button className="btn sm" onClick={() => onOpen(p)}>Открыть</button>
                     <button className="btn secondary sm" onClick={() => download(p)}>Резервная копия</button>
-                    <button className="btn ghost sm" onClick={async () => { if (confirm(`Удалить проект «${p.alias}» из браузера?`)) { await deleteProject(p); refresh(); } }}>Удалить</button>
+                    <button className="btn ghost sm" onClick={async () => { if (confirm(`Удалить проект «${p.alias}» ${isDesktop ? 'с компьютера' : 'из браузера'}?`)) { await deleteProject(p); refresh(); } }}>Удалить</button>
                   </div>
                 </div>
               ))}

@@ -1,7 +1,7 @@
 {
   "name": "trust-remont-planner",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,7 +11,12 @@
     "test:watch": "vitest",
     "e2e": "playwright test",
     "typecheck": "tsc -b --noEmit",
-    "bench": "vitest run tests/bench.test.ts"
+    "bench": "vitest run tests/bench.test.ts",
+    "desktop:assets": "node desktop/prepare-assets.cjs",
+    "desktop:build": "npm run desktop:assets && tsc -b && vite build --mode desktop",
+    "desktop:start": "npm run desktop:build && electron .",
+    "desktop:package": "npm run desktop:build && electron-builder --win nsis --x64 --publish never",
+    "desktop:test": "playwright test --config playwright.desktop.config.ts"
   },
   "dependencies": {
     "pdfjs-dist": "^6.4.299",
@@ -26,11 +31,62 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3",
     "fake-indexeddb": "^6.2.5",
     "jpeg-js": "^0.4.4",
     "pngjs": "^7.0.0",
     "typescript": "^5.9.3",
     "vite": "^8.3.1",
     "vitest": "^5.0.3"
+  },
+  "description": "Траст ремонт — предпродажный планировщик квартир",
+  "author": "Траст ремонт",
+  "main": "desktop/main.cjs",
+  "build": {
+    "appId": "ru.trustremont.planner",
+    "productName": "Траст ремонт — Планировщик",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "desktop/*.cjs",
+      "desktop/icon.png",
+      "desktop/icon.ico",
+      "package.json"
+    ],
+    "asar": true,
+    "npmRebuild": false,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "desktop/icon.ico",
+      "artifactName": "TrustRemontPlanner-Setup-${version}.${ext}",
+      "executableName": "TrustRemontPlanner"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Траст ремонт — Планировщик",
+      "deleteAppDataOnUninstall": false,
+      "installerLanguages": [
+        "ru_RU"
+      ],
+      "language": "1049"
+    }
+  },
+  "overrides": {
+    "global-agent": "4.1.3"
   }
 }

@@ -5,6 +5,7 @@ import { saveProject } from '../storage/db';
 import { Autosave } from './autosave';
 import { invalidatePlanningInputs } from '../brief/requirements';
 import { resolveRules, type Rules } from '../rules/rules';
+import { desktop } from '../desktop';
 
 interface Store {
   project: Project;
@@ -78,6 +79,7 @@ export function ProjectProvider({ initial, children }: { initial: Project; child
     return () => { document.removeEventListener('visibilitychange', visibility); window.removeEventListener('pagehide', flush); window.removeEventListener('beforeunload', beforeUnload); flush(); };
   }, []);
   const flushSave = useCallback(() => saver.current!.flush(), []);
+  useEffect(() => desktop?.onBeforeClose(flushSave), [flushSave]);
 
   const update = useCallback((fn: (p: Project) => Project) => dispatch({ t: 'update', fn }), []);
   const editGeometry = useCallback((fn: (g: PlanGeometry) => PlanGeometry) => dispatch({ t: 'geom', fn }), []);

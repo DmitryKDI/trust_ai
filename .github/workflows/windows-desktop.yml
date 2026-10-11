@@ -1,0 +1,50 @@
+name: Windows application
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/festive-turing-m7na3z]
+    paths:
+      - 'app/**'
+      - 'config/**'
+      - '.github/workflows/windows-desktop.yml'
+permissions:
+  contents: read
+jobs:
+  windows-app:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: app
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm audit --audit-level=high
+      - run: npm run typecheck
+      - run: npx vitest run --exclude tests/bench.test.ts --maxWorkers=2 --testTimeout=30000
+      - name: Build the Windows installer
+        run: npm run desktop:package
+      - name: Test the packaged EXE, PDF, backup and project persistence
+        run: npm run desktop:test
+      - name: Installer checksums
+        shell: pwsh
+        run: Get-FileHash release/TrustRemontPlanner-Setup-*.exe -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $([System.IO.Path]::GetFileName($_.Path))" } | Set-Content release/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TrustRemontPlanner-Windows
+          path: |
+            app/release/TrustRemontPlanner-Setup-*.exe
+            app/release/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Windows-app-check
+          path: app/test-results
+          if-no-files-found: ignore

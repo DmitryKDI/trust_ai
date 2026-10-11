@@ -1,6 +1,7 @@
 // Клиентская страница: до трёх актуальных проверенных вариантов, выбранный отмечен. Без исходных документов,
 // эталона, моделей, уверенностей и технических полей.
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
+import { desktop, isDesktop } from '../desktop';
 import { SceneImage } from '../scene/SceneImage';
 import { sceneSettings } from '../scene/types';
 import { EMPTY_CATALOG } from '../scene/catalog';
@@ -17,6 +18,8 @@ const mln = (v: number) => (v / 1e6).toFixed(2).replace('.', ',');
 
 export function ClientScreen({ back }: { back: () => void }) {
   const { project, rules } = useStore();
+  const [exporting, setExporting] = useState(false);
+  const [pdfMessage, setPdfMessage] = useState('');
   const settings = useMemo(() => ({ ...sceneSettings(project.concept.scene3d), fullWalls: false, showCeiling: false }), [project.concept.scene3d]);
   const v = project.variants.find((x) => x.id === project.selectedVariantId && x.approved && isReady(x) && variantCurrent(x, project));
   if (!v)
@@ -41,8 +44,15 @@ export function ClientScreen({ back }: { back: () => void }) {
     <div className="view">
       <div className="actions no-print" style={{ marginTop: 0, marginBottom: 16 }}>
         <button className="btn secondary" onClick={back}>Изменить вариант</button>
-        <button className="btn ghost" onClick={() => { if (document.querySelectorAll('[data-client-3d]').length !== variants.length) { alert('Дождитесь подготовки 3D-визуализаций. Если 3D недоступно, включите аппаратное ускорение браузера.'); return; } window.print(); }}>Печать / PDF</button>
-        <span className="muted small">Для PDF выберите «Сохранить как PDF» в окне печати.</span>
+        <button className="btn ghost" disabled={exporting} onClick={async () => {
+          if (document.querySelectorAll('[data-client-3d]').length !== variants.length) { alert(`Дождитесь подготовки 3D-визуализаций.${isDesktop ? ' Если 3D недоступно, перезапустите программу.' : ' Если 3D недоступно, включите аппаратное ускорение браузера.'}`); return; }
+          if (!desktop) { window.print(); return; }
+          setExporting(true); setPdfMessage('');
+          try { if (await desktop.savePdf(project.alias)) setPdfMessage('PDF сохранён.'); }
+          catch (e) { setPdfMessage(e instanceof Error ? e.message : 'Не удалось сохранить PDF.'); }
+          finally { setExporting(false); }
+        }}>{exporting ? 'Сохранение PDF…' : isDesktop ? 'Сохранить PDF' : 'Печать / PDF'}</button>
+        <span className="muted small" role="status">{pdfMessage || (isDesktop ? 'Выберите папку для сохранения КП.' : 'Для PDF выберите «Сохранить как PDF» в окне печати.')}</span>
       </div>
       <article className="client">
         <header className="clienthero">

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '../state/store';
+import { isDesktop } from '../desktop';
 import { checkedPlan } from './model';
 import { clearLearning, forgetLearnedPlan, getFile, importLearning, learningBackup, listLearnedPlans, planKey, saveLearnedPlan } from '../storage/db';
 
@@ -52,6 +53,6 @@ export function LearningPanel() {
     </div>
     {message && <p className="notice" role="status">{message}</p>}
     {error && <p className="notice err" role="alert">{error}</p>}
-    <p className="muted small">Данные остаются в этом браузере. До 200 страниц и 5 МБ; при заполнении забываются старейшие примеры. Перед сменой устройства экспортируйте обучение или резервную копию проекта.</p>
+    <p className="muted small">Данные остаются {isDesktop ? 'на этом компьютере' : 'в этом браузере'}. До 200 страниц и 5 МБ; при заполнении забываются старейшие примеры. Перед сменой устройства экспортируйте обучение или резервную копию проекта.</p>
   </details>;
 }
