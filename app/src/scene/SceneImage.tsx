@@ -20,7 +20,7 @@ export function SceneImage({ geometry, items, settings, catalog, palette, title 
       const instance = renderer;
       void instance.ready.then(() => {
         if (!active) return;
-        try { instance.draw(DEFAULT_CAMERA); if (el.getContext('webgl')?.isContextLost()) throw new Error('3D приостановлено браузером. Перезагрузите страницу.'); setUrl(el.toDataURL('image/png')); }
+        try { instance.draw(DEFAULT_CAMERA); if (el.getContext('webgl')?.isContextLost()) throw new Error('Отображение 3D приостановлено. Откройте экран заново.'); setUrl(el.toDataURL('image/png')); }
         catch (e) { setError(e instanceof Error ? e.message : 'Не удалось подготовить 3D.'); }
         finally { instance.destroy(); }
       });

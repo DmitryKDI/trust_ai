@@ -9,6 +9,7 @@ import { emptyGeometry, uid } from '../model/defaults';
 import { useStore } from '../state/store';
 import { getFile, putFile } from '../storage/db';
 import { pdfPageCount, pdfThumbnails } from '../pdf/load';
+import { isDesktop } from '../desktop';
 
 const MAX_MB = 60;
 
@@ -88,7 +89,7 @@ function DocPicker({ role }: { role: 'plan' | 'reference' }) {
       <label className="upload">
         <div style={{ fontSize: 30, color: '#8a6853' }}>↥</div>
         <strong>{doc ? doc.name : role === 'plan' ? 'Перетащите или выберите план (PDF, JPG, PNG) — или вставьте картинку Ctrl+V' : 'Выберите файл PDF, JPG или PNG'}</strong>
-        <p className="muted small">{doc ? `${doc.pageCount} стр. · ${(doc.size / 1e6).toFixed(1)} МБ · нажмите, чтобы заменить` : `до ${MAX_MB} МБ; файл остаётся в браузере`}</p>
+        <p className="muted small">{doc ? `${doc.pageCount} стр. · ${(doc.size / 1e6).toFixed(1)} МБ · нажмите, чтобы заменить` : `до ${MAX_MB} МБ; файл остаётся ${isDesktop ? 'на компьютере' : 'в браузере'}`}</p>
         <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/*" onChange={(e) => onFile(e.target.files?.[0])} />
       </label>
       {busy && <p className="muted"><span className="spinner" />Читаю файл…</p>}

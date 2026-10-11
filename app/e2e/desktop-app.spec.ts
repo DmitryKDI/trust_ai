@@ -23,10 +23,6 @@ test('real packaged EXE: offline UI, safe renderer, import, three 3D views, nati
     const native = await app.evaluate(({ app }) => ({ packaged: app.isPackaged }));
     expect(native.packaged).toBe(true);
     expect(await page.evaluate(() => typeof (window as any).require)).toBe('undefined');
-    // An external navigation is blocked before any network request or new window.
-    await page.evaluate(() => { window.open('https://example.com'); window.location.assign('https://example.com'); });
-    await expect(page).toHaveURL('trust://planner/');
-    expect((await app.windows()).length).toBe(1);
     const project = newProject({ alias: 'Настольный проект', city: 'Москва', manager: 'До правки', date: '2026-10-11' });
     project.geometry = twoRoom(); const hash = geometryHash(project.geometry); project.geometry.approvedHash = hash;
     project.variants = ['space', 'storage', 'family'].map((scenario, i) => ({ id: `native-v${i}`, scenario: scenario as 'space' | 'storage' | 'family', title: ['Пространство', 'Хранение', 'Семейный'][i], idea: 'Проверка настольной версии', geometryHash: hash,
@@ -61,6 +57,11 @@ test('real packaged EXE: offline UI, safe renderer, import, three 3D views, nati
     await page.getByRole('button', { name: /Проект/ }).first().click();
     await expect(page.getByLabel('Менеджер', { exact: true })).toHaveValue('Сохранено перед закрытием');
     await expect(page.getByText('Сохранено на компьютере', { exact: true })).toBeVisible();
+    // Electron cancels navigation before commit; check its authoritative URL rather
+    // than waiting for a Playwright navigation event that was intentionally denied.
+    await page.evaluate(() => { window.open('https://example.com'); window.location.assign('https://example.com'); });
+    expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.getURL())).toBe('trust://planner/');
+    expect((await app.windows()).length).toBe(1);
     expect(errors).toEqual([]);
   } finally { await close(app).catch(() => app.close()); }
 });

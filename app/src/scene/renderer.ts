@@ -1,12 +1,13 @@
 import type { SceneModel } from './build';
 import { nodeVertices } from './mesh';
 import { BASE_COLORS, type MaterialSlot, type SceneMaterial } from './types';
+import { isDesktop } from '../desktop';
 
 export interface Camera { yaw: number; pitch: number; zoom: number }
 export const DEFAULT_CAMERA: Camera = { yaw: -.65, pitch: 1.0, zoom: 1 };
 export function createSceneRenderer(canvas: HTMLCanvasElement, scene: SceneModel, materials: Partial<Record<MaterialSlot, SceneMaterial>>, warn: (message: string) => void) {
   const gl = canvas.getContext('webgl', { antialias: true, preserveDrawingBuffer: true });
-  if (!gl) throw new Error('3D недоступно в этом браузере. Включите аппаратное ускорение или откройте программу в Edge / Chrome.');
+  if (!gl) throw new Error(isDesktop ? '3D недоступно. Перезапустите программу и проверьте драйвер видеокарты.' : '3D недоступно в этом браузере. Включите аппаратное ускорение или откройте программу в Edge / Chrome.');
   const shaders: WebGLShader[] = [], buffers: WebGLBuffer[] = [], textures: WebGLTexture[] = [];
   const shader = (type: number, source: string) => {
     const v = gl.createShader(type)!; shaders.push(v); gl.shaderSource(v, source); gl.compileShader(v);

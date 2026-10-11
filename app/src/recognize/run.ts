@@ -40,7 +40,7 @@ function imageUrl(rgba: Uint8ClampedArray, w: number, h: number): string {
  */
 export async function recognizeDocument(doc: SourceDocument, page: number, opts: { briefAreaM2: number | null; children: number; fallbackK: number; useLearning?: boolean }): Promise<ReadResult> {
   const blob = await getFile(doc.id);
-  if (!blob) throw new Error('Файл плана не найден в браузере — загрузите его заново');
+  if (!blob) throw new Error('Файл плана не найден в хранилище — загрузите его заново');
   const src = await renderForRecognition(blob, doc.mime, page);
   const vectorDrawing = !!src.vectors && src.vectors.segments.length > 200 && src.texts.length > 10;
   // Исходный план как есть — подложка для мебели (копию делаем до передачи пикселей в фоновый поток).

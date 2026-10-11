@@ -17,7 +17,7 @@ export function loadPage(doc: SourceDocument, page: number, withVectors = true):
   if (!p) {
     p = (async () => {
       const blob = await getFile(doc.id);
-      if (!blob) throw new Error('Файл исходника не найден в браузере — загрузите его заново');
+      if (!blob) throw new Error('Файл исходника не найден в хранилище — загрузите его заново');
       if (doc.mime === 'application/pdf') return renderPdfPage(await blob.arrayBuffer(), page, 3, withVectors);
       return renderImage(blob);
     })();

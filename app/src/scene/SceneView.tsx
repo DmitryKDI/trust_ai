@@ -20,7 +20,7 @@ export function SceneView({ geometry, items, settings, catalog, palette, title, 
     try { renderer.current = createSceneRenderer(el, model, materials, setWarning); renderer.current.draw(cameraRef.current); const instance = renderer.current; void instance.ready.then(() => { if (renderer.current === instance && !el.getContext('webgl')?.isContextLost()) setReady(true); }); }
     catch (e) { setError(e instanceof Error ? e.message : 'Не удалось открыть 3D.'); }
     const observer = new ResizeObserver(() => renderer.current?.draw(cameraRef.current)); observer.observe(el);
-    const lost = (e: Event) => { e.preventDefault(); setReady(false); setError('Отображение 3D приостановлено браузером. Ожидаем восстановление.'); };
+    const lost = (e: Event) => { e.preventDefault(); setReady(false); setError('Отображение 3D приостановлено. Ожидаем восстановление.'); };
     const restored = () => setEpoch(n => n + 1);
     el.addEventListener('webglcontextlost', lost); el.addEventListener('webglcontextrestored', restored);
     return () => { observer.disconnect(); el.removeEventListener('webglcontextlost', lost); el.removeEventListener('webglcontextrestored', restored); renderer.current?.destroy(); renderer.current = null; };
