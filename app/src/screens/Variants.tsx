@@ -8,7 +8,9 @@ import { furnitureMeasurements } from '../editor/measurements';
 import { MeasurementGuides } from '../editor/MeasurementGuides';
 import { ownsShortcut } from '../editor/keyboard';
 import { SizeInput } from '../editor/SizeInput';
-import type { FurnitureItem, FurnitureType, PlanStyle, Project, RoomType, Rot, Variant } from '../model/types';
+import { selectElement, deleteSelection, type ElementSelection, type PlanSelection } from '../editor/selection';
+import { BatchProperties } from '../editor/BatchProperties';
+import type { FurnitureItem, FurnitureType, PlanGeometry, PlanStyle, Project, RoomType, Rot, Variant } from '../model/types';
 import { uid } from '../model/defaults';
 import { useStore } from '../state/store';
 import { useSourcePage } from '../state/useSource';
@@ -161,11 +163,14 @@ function VariantDetail({ v, busy, onRebuildRoom }: { v: Variant; busy: boolean; 
   const g = project.geometry;
   const [items, setItems] = useState<FurnitureItem[]>(v.items);
   const rootRef = useRef<HTMLDivElement>(null);
-  const [selection, setSelection] = useState<string[]>([]);
-  const selId = selection.length === 1 ? selection[0] : null;
-  const setSelId = (id: string | null) => setSelection(id ? [id] : []);
+  const [planSelection, setPlanSelection] = useState<PlanSelection[]>([]);
+  const selection = planSelection.filter(s => s.kind === 'item').map(s => s.id);
+  const geometrySelection = planSelection.filter((s): s is ElementSelection => s.kind !== 'item');
+  const selId = planSelection.length === 1 && planSelection[0].kind === 'item' ? planSelection[0].id : null;
+  const setSelId = (id: string | null) => setPlanSelection(id ? [{ kind: 'item', id }] : []);
   const itemsRef = useRef(items);
-  const [history, setHistory] = useState<{ past: FurnitureItem[][]; future: FurnitureItem[][] }>({ past: [], future: [] });
+  type Snapshot = { items: FurnitureItem[]; geometry: PlanGeometry; restoreGeometry: boolean };
+  const [history, setHistory] = useState<{ past: Snapshot[]; future: Snapshot[] }>({ past: [], future: [] });
   const [snapping, setSnapping] = useState(true);
   const [showDistances, setShowDistances] = useState(true);
   const [roomToRebuild, setRoomToRebuild] = useState(g.rooms[0]?.id ?? '');
@@ -198,20 +203,30 @@ function VariantDetail({ v, busy, onRebuildRoom }: { v: Variant; busy: boolean; 
     return pt.matrixTransform(inverse ?? svg.getScreenCTM()!.inverse());
   };
   const live = (next: FurnitureItem[]) => { itemsRef.current = next; setItems(next); };
-  const record = (before: FurnitureItem[]) => setHistory(h => ({ past: [...h.past.slice(-99), before], future: [] }));
+  const record = (before: FurnitureItem[], restoreGeometry = false) => setHistory(h => ({ past: [...h.past.slice(-99), { items: before, geometry: g, restoreGeometry }], future: [] }));
+  const setGeometry = (next: PlanGeometry) => update(p => ({ ...p, geometry: next, variants: p.variants.map(x => ({ ...x, approved: false })), selectedVariantId: null, review: null }));
+  const restore = (snapshot: Snapshot) => { if (snapshot.restoreGeometry && snapshot.geometry !== g) setGeometry(snapshot.geometry); live(snapshot.items); setPlanSelection([]); };
   const changeItems = (fn: (list: FurnitureItem[]) => FurnitureItem[]) => { if (busy) return; const before = itemsRef.current, next = fn(before); if (JSON.stringify(before) === JSON.stringify(next)) return; record(before); live(next); };
   const undoItems = () => {
     if (drag.current) { live(drag.current.before); drag.current = null; setDragging(false); setGuides([]); return; }
-    const before = history.past.at(-1); if (!before) return; const currentItems = itemsRef.current;
-    setHistory(h => ({ past: h.past.slice(0, -1), future: [currentItems, ...h.future] })); live(before);
+    const before = history.past.at(-1); if (!before) return;
+    setHistory(h => ({ past: h.past.slice(0, -1), future: [{ items: itemsRef.current, geometry: g, restoreGeometry: before.restoreGeometry }, ...h.future] })); restore(before);
   };
-  const redoItems = () => { const next = history.future[0]; if (!next) return; const before = itemsRef.current; setHistory(h => ({ past: [...h.past, before], future: h.future.slice(1) })); live(next); };
+  const redoItems = () => { const next = history.future[0]; if (!next) return; setHistory(h => ({ past: [...h.past, { items: itemsRef.current, geometry: g, restoreGeometry: next.restoreGeometry }], future: h.future.slice(1) })); restore(next); };
+  const changeGeometry = (fn: (geometry: PlanGeometry) => PlanGeometry) => {
+    if (busy) return;
+    const next = fn(g); if (next === g) return;
+    record(itemsRef.current, true);
+    setGeometry({ ...next, version: g.version + 1, approved: true, approvedAt: new Date().toISOString(), approvedHash: geometryHash(next) });
+  };
   const mmPerPx = () => { const m = svgRef.current?.getScreenCTM(); return m ? 1 / Math.hypot(m.a, m.b) : 20; };
   const onItemDown = (e: RPE<SVGGElement>, it: FurnitureItem) => {
     if (e.button !== 0) return; e.stopPropagation();
     svgRef.current?.focus({ preventScroll: true });
-    if (e.shiftKey) { setSelection(current => current.includes(it.id) ? current.filter(id => id !== it.id) : [...current, it.id]); return; }
-    const selected = selection.includes(it.id) ? selection : [it.id]; setSelection(selected);
+    if (e.shiftKey) { setPlanSelection(current => selectElement(current, { kind: 'item', id: it.id }, true)); return; }
+    if (geometrySelection.length && selection.includes(it.id)) return;
+    const selected = selection.includes(it.id) ? selection : [it.id];
+    if (!selection.includes(it.id)) setSelId(it.id);
     if (it.locked || busy) return;
     const ids = selected.filter(id => !itemsRef.current.find(i => i.id === id)?.locked);
     const p = toWorld(e), before = itemsRef.current;
@@ -254,7 +269,15 @@ function VariantDetail({ v, busy, onRebuildRoom }: { v: Variant; busy: boolean; 
   const commonType = selectedItems.length && selectedItems.every(i => i.type === selectedItems[0].type) ? selectedItems[0].type : null;
   const patchSel = (p: Partial<FurnitureItem>) => changeItems(l => l.map(i => i.id === selId && !i.locked ? { ...i, ...p, movedByManager: true } : i));
   const rotate = () => changeItems(l => l.map(i => selection.includes(i.id) && !i.locked ? { ...i, rot: ((i.rot + 90) % 360) as Rot, movedByManager: true } : i));
-  const remove = () => { if (selection.length) { changeItems(l => l.filter(i => i.locked || !selection.includes(i.id))); setSelId(null); } };
+  const remove = () => {
+    if (!planSelection.length || busy) return;
+    const before = itemsRef.current, nextItems = before.filter(i => i.locked || !selection.includes(i.id));
+    const nextGeometry = geometrySelection.length ? deleteSelection(g, geometrySelection) : g;
+    if (nextGeometry === g && nextItems.length === before.length) return;
+    record(before, nextGeometry !== g); live(nextItems);
+    if (nextGeometry !== g) setGeometry({ ...nextGeometry, version: g.version + 1, approved: true, approvedAt: new Date().toISOString(), approvedHash: geometryHash(nextGeometry) });
+    setSelId(null);
+  };
   const addItem = (type: FurnitureType) => {
     const c = CATALOG[type];
     const room = g.rooms.filter((r) => r.type !== 'balcony').sort((a, b) => b.polygon.length - a.polygon.length)[0];
@@ -272,7 +295,7 @@ function VariantDetail({ v, busy, onRebuildRoom }: { v: Variant; busy: boolean; 
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redoItems(); return; }
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.key.toLowerCase() === 'r' && selection.length) rotate();
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selection.length) { e.preventDefault(); remove(); }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && planSelection.length) { e.preventDefault(); remove(); }
       if (e.key === 'Escape') { e.preventDefault(); onCancel(); setSelId(null); }
     };
     window.addEventListener('keydown', k);
@@ -299,7 +322,8 @@ function VariantDetail({ v, busy, onRebuildRoom }: { v: Variant; busy: boolean; 
   return (
     <div ref={rootRef} className="detail">
       <div className="card" style={{ padding: 12 }}>
-        <PlanView ref={svgRef} g={g} items={items} issues={result.issues} mode="variant" wallImage={project.planImage} planStyle={project.planStyle} selectedIds={selection} viewBox={planBounds(g, 500)}
+        <PlanView ref={svgRef} g={g} items={items} issues={result.issues} mode="variant" wallImage={project.planImage} planStyle={project.planStyle} selectedIds={planSelection.map(s => s.id)} viewBox={planBounds(g, 500)}
+          onElementClick={(kind, id, event) => setPlanSelection(current => selectElement(current, { kind, id }, event.shiftKey))}
           onItemPointerDown={onItemDown} svgProps={{ tabIndex: 0, onPointerMove: onMove, onPointerUp: onUp, onPointerCancel: onCancel, onLostPointerCapture: () => { if (drag.current) onCancel(); }, onPointerDown: e => { svgRef.current?.focus({ preventScroll: true }); if (!e.shiftKey) setSelId(null); } }}>
           {guides.map((guide, index) => <path key={index} data-snap-guide={guide.kind} d={`M${guide.a.x} ${guide.a.y}L${guide.b.x} ${guide.b.y}`} stroke="#2f6f8f" strokeWidth={1.5} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" pointerEvents="none" />)}
           {sel && !sel.locked && !busy && <FurnitureHandles item={sel} radius={6 * mmPerPx()} onDown={onResizeDown} />}
@@ -313,6 +337,7 @@ function VariantDetail({ v, busy, onRebuildRoom }: { v: Variant; busy: boolean; 
           {selectedItems.length > 0 && <button className="btn secondary sm" onClick={() => changeItems(list => list.map(i => selection.includes(i.id) ? { ...i, locked: !selectedItems.every(x => x.locked) } : i))}>{selectedItems.every(i => i.locked) ? 'Снять закрепление' : 'Закрепить выбранную мебель'}</button>}
           {selectedLocked && <span className="badge">Закреплённая мебель сохраняется при пересборке. Снимите закрепление для правки.</span>}
           {selectedItems.length > 1 && <span className="badge">Выбрано предметов: {selectedItems.length}</span>}
+          {geometrySelection.length > 0 && <><span className="badge" data-mixed-selection={planSelection.length}>Выбрано элементов: {planSelection.length} · мебели: {selection.length} · элементов плана: {geometrySelection.length}</span><button className="btn ghost sm" onClick={remove}>Удалить выбранную группу ({planSelection.length})</button></>}
           {commonType && !selectedLocked && <label className="field">Тип выбранной мебели<select value={commonType} onChange={e => { const type = e.target.value as FurnitureType; changeItems(list => list.map(i => selection.includes(i.id) && !i.locked ? changeFurnitureType(i, type) : i)); }}>{ADDABLE.map(type => <option key={type} value={type}>{CATALOG[type].name}</option>)}</select></label>}
           {selectedItems.length > 1 && <><button className="btn secondary sm" onClick={rotate}>Повернуть выбранные (R)</button><button className="btn ghost sm" onClick={remove}>Удалить выбранные предметы</button></>}
           <label className="field" style={{ minWidth: 200 }}><span className="hint">Добавить предмет</span>
@@ -334,10 +359,12 @@ function VariantDetail({ v, busy, onRebuildRoom }: { v: Variant; busy: boolean; 
             </>
           )}
         </div>
+        {geometrySelection.length > 1 && <BatchProperties geometry={g} selection={geometrySelection} onChange={changeGeometry} onDelete={() => { changeGeometry(x => deleteSelection(x, geometrySelection)); setPlanSelection(s => s.filter(x => x.kind === 'item')); }} />}
+        {geometrySelection.length > 0 && <p className="hint">Стены, проёмы, зоны и мебель можно выделять вместе через Shift. Удаление смешанной группы отменяется одним Ctrl+Z. После изменения плана перепроверьте варианты.</p>}
         {measurements.length > 0 && <ul className="list small" aria-label="Расстояния выбранного предмета">{measurements.map(m => <li key={m.id}>{m.label}: {m.mm} мм</li>)}</ul>}
         <div className="actions"><label className="field">Комната для пересборки<select aria-label="Комната для пересборки" value={roomToRebuild} onChange={e => setRoomToRebuild(e.target.value)}>{g.rooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label><button className="btn secondary sm" disabled={busy || !roomToRebuild || dragging} onClick={() => onRebuildRoom(roomToRebuild)}>Пересобрать только эту комнату</button></div>
         <p className="hint">Мебель в остальных комнатах и закреплённые предметы останутся на своих местах.</p>
-        <p className="fineprint">Перетаскивайте мебель; Shift + щелчок — выбрать несколько; маркеры на сторонах и углах — изменить размер. Alt — временно без прилипания. Ctrl+Z — отменить правку мебели. Красная рамка — нарушение, жёлтая — замечание.</p>
+        <p className="fineprint">Перетаскивайте мебель; Shift + щелчок — добавить или исключить любой предмет, стену, проём или зону. Маркеры на сторонах и углах — изменить размер. Alt — временно без прилипания. Ctrl+Z — отменить правку. Красная рамка — нарушение, жёлтая — замечание.</p>
       </div>
       <aside className="panel">
         <div className="card">

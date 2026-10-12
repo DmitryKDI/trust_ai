@@ -3,12 +3,16 @@ import { twoRoom, rect } from '../tests/fixtures/synthetic';
 import { newProject } from '../src/model/defaults';
 import { geometryHash } from '../src/geometry/plan';
 
-async function example(page: Page, three = false) {
+async function example(page: Page, three = false, mixed = false) {
   const p = newProject({ alias: 'Редактор группы', city: '', manager: '', date: '' });
   p.geometry = twoRoom(); p.geometry.wetZones = [{ id: 'wet-edit', polygon: rect(1000, 4000, 2500, 5500), source: 'manual', sourcePage: 1, verifiedByManager: true }]; p.geometry.approvedHash = geometryHash(p.geometry);
   p.variants = [{ id: 'edit-v', scenario: 'space', title: 'Пример', idea: 'Редактор', geometryHash: geometryHash(p.geometry), items: [
     { id: 'sofa-one', type: 'sofa', x: 2000, y: 2000, w: 1000, d: 600, rot: 0, roomId: p.geometry.rooms[0].id, ruleId: null, movedByManager: false },
     { id: 'sofa-two', type: 'sofa', x: 4000, y: 2000, w: 1000, d: 600, rot: 0, roomId: p.geometry.rooms[0].id, ruleId: null, movedByManager: false }], benefits: [], compromises: [], assumptions: [], changes: [], issues: [], metrics: {}, approved: false, editedByManager: false }];
+  if (mixed) {
+    p.geometry.fixed = [{ id: 'fixed-mixed', kind: 'riser', polygon: rect(7000, 5000, 7200, 5200), source: 'manual', sourcePage: 1, verifiedByManager: true }];
+    p.variants[0].items[1].type = 'armchair'; p.geometry.approvedHash = geometryHash(p.geometry); p.variants[0].geometryHash = geometryHash(p.geometry);
+  }
   if (three) { p.variants = [p.variants[0], ...(['storage', 'family'] as const).map((scenario, n) => ({ ...p.variants[0], id: `keep-${n}`, scenario, title: scenario, items: p.variants[0].items.map(i => ({ ...i, id: `${i.id}-${n}` })), approved: n === 0 }))]; p.selectedVariantId = 'keep-0'; }
   await page.goto('/'); await page.locator('input[type=file]').setInputFiles({ name: 'edit.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ format: 'trust-planner-project', version: 1, project: p, files: {} })) });
   return p;
@@ -72,4 +76,65 @@ test('пересборка одного сохраняет остальные; �
   await page.getByRole('button', { name: 'Пересобрать все варианты', exact: true }).click();
   await expect.poll(async () => (await saved(page))?.variants.some((v: any) => v.id === 'keep-0'), { timeout: 90_000 }).toBe(false);
   expect((await saved(page)).selectedVariantId).toBeNull();
+});
+
+test('смешанная группа: мебель, стена, окно, зона, комната и стояк; удалить и отменить одним действием', async ({ page }) => {
+  const p = await example(page, false, true), detail = page.locator('.detail'), svg = detail.locator('svg').first();
+  await click(page, svg, 2000, 2000);
+  await page.keyboard.down('Shift');
+  for (const pos of [[4000,2000],[500,0],[2500,0],[1700,4700],[3000,3200],[7100,5100]] as [number,number][]) await click(page, svg, ...pos);
+  await page.keyboard.up('Shift');
+  await expect(detail.locator('[data-mixed-selection]')).toHaveAttribute('data-mixed-selection', '7');
+  await expect(svg.locator('[data-item-id][data-selected="true"]')).toHaveCount(2);
+  await expect(svg.locator('[data-wall-id][data-selected="true"]')).toHaveCount(1);
+  await expect(svg.locator('[data-opening-id][data-selected="true"]')).toHaveCount(1);
+  await expect(svg.locator('[data-room-id][data-selected="true"]')).toHaveCount(1);
+  await expect(svg.locator('[data-wet-id][data-selected="true"]')).toHaveCount(1);
+  await expect(svg.locator('[data-fixed-id][data-selected="true"]')).toHaveCount(1);
+  await page.keyboard.down('Shift'); await click(page, svg, 2500, 0); await page.keyboard.up('Shift');
+  await expect(detail.locator('[data-mixed-selection]')).toHaveAttribute('data-mixed-selection', '6');
+  await page.keyboard.down('Shift'); await click(page, svg, 2500, 0); await page.keyboard.up('Shift');
+  await page.keyboard.press('Delete');
+  await expect.poll(async () => (await saved(page))?.variants[0].items.length).toBe(0);
+  await expect(svg.locator('[data-wall-id]')).toHaveCount(5); await expect(svg.locator('[data-room-id]')).toHaveCount(2);
+  await page.keyboard.press('Control+z');
+  await expect.poll(async () => (await saved(page))?.geometry).toEqual(p.geometry);
+  await expect.poll(async () => (await saved(page))?.variants[0].items).toEqual(p.variants[0].items);
+});
+
+test('подписи уменьшаются вместе с планом при отдалении в быстрой правке и разметке', async ({ page }) => {
+  await example(page);
+  const quick = page.locator('details').filter({ has: page.locator('summary', { hasText: /^Быстрая правка/ }) });
+  for (const mode of ['quick', 'markup']) {
+    if (mode === 'markup') await page.getByRole('button', { name: /Разметка/ }).first().click();
+    const svg = mode === 'quick' ? quick.locator('svg') : page.locator('.editor svg').first();
+    await svg.scrollIntoViewIfNeeded();
+    const label = svg.locator('[data-room-label] text').first(), before = await label.boundingBox(), font = await label.getAttribute('font-size');
+    const box = await svg.boundingBox(); await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2); await page.mouse.wheel(0, 700);
+    await expect.poll(async () => (await label.boundingBox())!.width).toBeLessThan(before!.width * .7);
+    await expect(label).toHaveAttribute('font-size', font!);
+  }
+});
+
+test('контур комнаты замыкается Enter на последней точке, две точки создают прямоугольник', async ({ page }) => {
+  const p = await example(page); p.geometry.rooms = [p.geometry.rooms[0]]; p.geometry.approvedHash = geometryHash(p.geometry); p.variants[0].geometryHash = geometryHash(p.geometry);
+  await page.goto('/'); await page.locator('input[type=file]').setInputFiles({ name: 'room-points.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ format: 'trust-planner-project', version: 1, project: p, files: {} })) });
+  const quick = page.locator('details').filter({ has: page.locator('summary', { hasText: /^Быстрая правка/ }) }), svg = quick.locator('svg');
+  const corners: [number,number][] = [[6000,1000],[9000,1000],[9000,3000],[8000,3000],[8000,2200],[6000,2200]];
+  await quick.getByRole('button', { name: 'Контур комнаты', exact: true }).click();
+  for (const c of corners) await click(page, svg, ...c);
+  await page.keyboard.press('Enter'); await expect(svg.locator('[data-room-id]')).toHaveCount(2);
+  const polygon = await svg.locator('[data-room-id]').last().getAttribute('d'); expect(polygon).toMatch(/Z$/);
+  await expect.poll(async () => (await saved(page))?.geometry.rooms.at(-1)?.polygon).toEqual(corners.map(([x,y]) => ({x,y})));
+  await quick.getByRole('button', { name: 'Отменить', exact: true }).click();
+  await quick.getByRole('button', { name: 'Контур комнаты', exact: true }).click(); await click(page, svg, 6000, 1000); await click(page, svg, 8500, 2800); await page.keyboard.press('Enter');
+  await expect.poll(async () => (await saved(page))?.geometry.rooms.at(-1)?.polygon.length).toBe(4);
+  await quick.getByRole('button', { name: 'Отменить', exact: true }).click();
+  await quick.getByRole('button', { name: 'Комната по углам', exact: true }).click(); await click(page, svg, 6500, 4400); await click(page, svg, 8600, 6400);
+  await expect(svg.locator('[data-room-id]')).toHaveCount(2);
+  await quick.getByRole('button', { name: 'Отменить', exact: true }).click();
+  await page.getByRole('button', { name: /Разметка/ }).first().click();
+  await page.getByRole('button', { name: 'Помещение по точкам', exact: true }).click();
+  const markup = page.locator('.editor svg').first(); await click(page, markup, 6000, 1000); await click(page, markup, 8500, 2800); await page.keyboard.press('Enter');
+  await expect.poll(async () => (await saved(page))?.geometry.rooms.at(-1)?.polygon.length).toBe(4);
 });

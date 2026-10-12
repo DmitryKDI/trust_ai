@@ -6,6 +6,7 @@ import { nearestWall } from './ops';
 import { components, dilate, erode, newBin } from '../recognize/raster';
 import { labelPolygon } from '../quick';
 import { difference, dist, fromRing, intersection, pointInPolygon, polyArea, projectOnSegment, toGeom, union } from '../geometry/poly';
+import { simpleRing } from '../learning/model';
 
 const MIN_ROOM_MM2 = 0.5e6;
 
@@ -219,4 +220,16 @@ export function roomFromCorners(a: Pt, b: Pt, rooms: Room[]): Pt[] | null {
   const rest = rooms.length ? difference(toGeom(r), ...rooms.map((x) => toGeom(x.polygon))) : toGeom(r);
   const parts = rest.map((p) => fromRing(p[0])).filter((p) => polyArea(p) >= MIN_ROOM_MM2).sort((p, q) => polyArea(q) - polyArea(p));
   return parts[0] ? parts[0].map((q) => ({ x: Math.round(q.x), y: Math.round(q.y) })) : null;
+}
+
+/** Two opposite corners make a rectangle; three or more ordered corners make a room contour. */
+export function roomFromPoints(points: Pt[], rooms: Room[]): Pt[] | null {
+  if (points.length === 2) return roomFromCorners(points[0], points[1], rooms);
+  const polygon = points.map(p => ({ x: Math.round(p.x), y: Math.round(p.y) }));
+  if (polygon.length > 3 && dist(polygon[0], polygon.at(-1)!) < 1) polygon.pop();
+  if (!simpleRing(polygon) || polyArea(polygon) < MIN_ROOM_MM2) return null;
+  const rest = rooms.length ? difference(toGeom(polygon), ...rooms.map(r => toGeom(r.polygon))) : toGeom(polygon);
+  // Rooms store a simple outer ring; never silently fill a hole occupied by another room.
+  const parts = rest.filter(p => p.length === 1).map(p => fromRing(p[0])).filter(p => polyArea(p) >= MIN_ROOM_MM2).sort((a, b) => polyArea(b) - polyArea(a));
+  return parts[0] ?? null;
 }

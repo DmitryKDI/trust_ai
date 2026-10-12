@@ -36,7 +36,7 @@ const TOOLS: { id: Tool; label: string; key: string; hint: string }[] = [
   { id: 'fixed', label: 'Шахта / радиатор', key: 'F', hint: 'Два клика — противоположные углы прямоугольника.' },
   { id: 'wet', label: 'Мокрая зона', key: 'Z', hint: 'Два клика — противоположные углы зоны.' },
   { id: 'room', label: 'Помещение', key: 'R', hint: 'Щёлкните внутри помещения — контур найдётся по стенам и проёмам.' },
-  { id: 'roomPoly', label: 'Помещение по точкам', key: 'N', hint: 'Для открытых зон: щёлкайте углы помещения; щелчок по первой точке или Enter — замкнуть.' },
+  { id: 'roomPoly', label: 'Помещение по точкам', key: 'N', hint: 'Щёлкайте углы помещения; щелчок по первой точке или Enter — заполнить. Две точки + Enter — прямоугольник.' },
 ];
 
 const FIXED_KINDS: [FixedKind, string][] = [['shaft', 'Шахта'], ['vent', 'Вентканал'], ['radiator', 'Радиатор'], ['electrical', 'Электрощиток'], ['column', 'Колонна'], ['riser', 'Стояк'], ['void', 'Полость вне площади'], ['other', 'Другое']];
@@ -103,7 +103,7 @@ export function MarkupScreen({ next }: { next: () => void }) {
     if (closed) return { p: closed, kind: 'closure' as const };
     const anchor = draft.length ? draft[draft.length - 1] : null;
     const linear = ['wall', 'door', 'window', 'calibrate', 'roomPoly'].includes(tool);
-    return snapPoint(raw, { g, k, index, radiusMm: 12 * mmPerPx(), anchor, ortho: ortho && linear, forceOrtho: shift && linear, vectors: vecSnap });
+    return snapPoint(raw, { g, k, index, radiusMm: 12 * mmPerPx(), anchor, ortho: ortho && linear && (tool !== 'roomPoly' || draft.length >= 2), forceOrtho: shift && linear, vectors: vecSnap });
   };
 
   const page = g.sourcePage;
@@ -200,7 +200,8 @@ export function MarkupScreen({ next }: { next: () => void }) {
   };
 
   function finishRoomPoly(pts: Pt[]) {
-    if (pts.length < 3) return;
+    if (pts.length < 2) return;
+    if (pts.length === 2) pts = rectPoly(pts[0], pts[1]);
     if (!simpleRing(pts)) { setMsg('Контур пересекает сам себя или имеет нулевую площадь. Исправьте точки или отмените построение.'); return; }
     const room: Room = { id: uid('r'), name: roomName(newRoomType), type: newRoomType, typeSource: 'manual', polygon: pts, source: 'manual', verifiedByManager: true, sourcePage: page };
     setG((x) => ({ ...x, rooms: [...x.rooms, room] }));
@@ -255,7 +256,7 @@ export function MarkupScreen({ next }: { next: () => void }) {
       if (e.key === 'Shift' && lastPointer.current) setCursor(snap(lastPointer.current, true));
       if (e.key === 'Escape') { e.preventDefault(); setDraft([]); setLenInput(''); setSel(null); return; }
       if ((e.key === 'Delete' || e.key === 'Backspace') && selection.length) { e.preventDefault(); removeSelected(); return; }
-      if (tool === 'roomPoly' && e.key === 'Enter' && draft.length >= 3) { finishRoomPoly(draft); return; }
+      if (tool === 'roomPoly' && e.key === 'Enter' && draft.length >= 2) { e.preventDefault(); finishRoomPoly(draft); return; }
       if (tool === 'wall' && draft.length && /^[0-9]$/.test(e.key)) { setLenInput((s) => s + e.key); return; }
       if (tool === 'wall' && e.key === 'Enter' && lenInput && draft.length && cursor) {
         const a = draft[draft.length - 1];

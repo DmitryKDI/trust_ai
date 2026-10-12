@@ -7,9 +7,21 @@ import { changeFurnitureType } from '../src/editor/furniture';
 import { footprint } from '../src/furniture/catalog';
 import { bbox, overlapArea } from '../src/geometry/poly';
 import type { FurnitureItem } from '../src/model/types';
+import { roomFromPoints } from '../src/editor/quickfix';
 
 const item: FurnitureItem = { id: 'one', type: 'sofa', x: 2000, y: 2000, w: 1000, d: 600, rot: 0, roomId: null, ruleId: null, movedByManager: false };
 describe('selection and corners', () => {
+  it('selects different categories together and toggles only the clicked member', () => {
+    const a = { kind: 'wall' as const, id: 'a' }, b = { kind: 'opening' as const, id: 'b' }, c = { kind: 'item' as const, id: 'c' };
+    const selected = selectElement(selectElement(selectElement<import('../src/editor/selection').PlanSelection>([], a, false), b, true), c, true);
+    expect(selected).toEqual([a, b, c]); expect(selectElement(selected, b, true)).toEqual([a, c]);
+  });
+  it('two room corners create a rectangle, more corners close the exact polygon; crossings are rejected', () => {
+    expect(roomFromPoints([{ x: 0, y: 0 }, { x: 2000, y: 1000 }], [])).toHaveLength(4);
+    const corners = [{ x: 0, y: 0 }, { x: 3000, y: 0 }, { x: 3000, y: 1000 }, { x: 1000, y: 1000 }, { x: 1000, y: 2500 }, { x: 0, y: 2500 }];
+    expect(roomFromPoints(corners, [])).toEqual(corners);
+    expect(roomFromPoints([corners[0], corners[2], corners[1], corners[4]], [])).toBeNull();
+  });
   it('Shift toggles; mixed wall types change together without changing other walls', () => {
     const g = twoRoom(), a = { kind: 'wall' as const, id: g.walls[0].id }, b = { kind: 'wall' as const, id: g.walls[4].id };
     const selected = selectElement(selectElement([], a, false), b, true);

@@ -63,7 +63,10 @@ export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanVi
   const errIds = new Set(issues.filter((i) => i.severity === 'error').flatMap((i) => i.itemIds));
   const warnIds = new Set(issues.filter((i) => i.severity === 'warning').flatMap((i) => i.itemIds));
   const editor = mode === 'editor';
-  const fs = Math.max(120, (vb.maxX - vb.minX) / 90) * (p.labelScale ?? 1);
+  // Font sizes use plan units, not the changing camera box: zoom moves text and
+  // geometry together instead of keeping labels large while the plan shrinks.
+  const labelBounds = useMemo(() => planBounds(g), [g]);
+  const fs = Math.max(120, (labelBounds.maxX - labelBounds.minX) / 90) * (p.labelScale ?? 1);
   const wetRooms = g.rooms.filter((r) => r.type === 'bath' || r.type === 'wc');
   const pal = PALETTES[p.planStyle ?? 'graphite'];
   // Исходный план БТИ (картинка) показывается как есть — поверх только мебель.
@@ -96,14 +99,14 @@ export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanVi
       {g.rooms.map((r) => (
         <path key={r.id} data-room-id={r.id} data-selected={selected.has(r.id)} d={polyPath(r.polygon)} fill={orig ? 'none' : r.type === 'balcony' ? '#f1f2ee' : editor ? 'rgba(255,255,255,.55)' : pal.floor}
           stroke={selected.has(r.id) ? '#d2691e' : editor ? (r.verifiedByManager ? '#9fb0a6' : '#c9a36b') : 'none'} strokeWidth={selected.has(r.id) ? 3 : 1} strokeDasharray={editor && !r.verifiedByManager ? '6 4' : undefined} vectorEffect="non-scaling-stroke"
-          onClick={e => p.onElementClick?.('room', r.id, e)} />
+          pointerEvents={orig && p.onElementClick ? 'all' : undefined} onClick={e => p.onElementClick?.('room', r.id, e)} />
       ))}
       {!orig && wetRooms.map((r) => <path key={'wet' + r.id} d={polyPath(r.polygon)} fill="url(#tile)" opacity={editor ? 0.6 : 1} pointerEvents="none" />)}
       {g.wetZones.map((z) => <path key={z.id} data-wet-id={z.id} data-selected={selected.has(z.id)} d={polyPath(z.polygon)} fill="url(#tile)" stroke={selected.has(z.id) ? '#d2691e' : '#9fb7bd'} strokeWidth={selected.has(z.id) ? 3 : 1} vectorEffect="non-scaling-stroke" onClick={e => p.onElementClick?.('wet', z.id, e)} />)}
-      {!orig && g.fixed.map((f) => (
+      {(!orig || !!p.onElementClick) && g.fixed.map((f) => (
         <path key={f.id} data-fixed-id={f.id} data-selected={selected.has(f.id)} d={polyPath(f.polygon)} onClick={e => p.onElementClick?.('fixed', f.id, e)}
-          fill={f.kind === 'void' ? 'url(#hatch)' : f.kind === 'radiator' ? '#dfeaec' : f.kind === 'riser' ? '#f3d9c4' : '#d9dedc'}
-          stroke={selected.has(f.id) ? '#d2691e' : f.kind === 'riser' ? '#c8773f' : f.kind === 'radiator' ? '#7fa3a8' : '#8a9492'} strokeWidth={selected.has(f.id) ? 3 : 1} vectorEffect="non-scaling-stroke"
+          fill={orig ? 'transparent' : f.kind === 'void' ? 'url(#hatch)' : f.kind === 'radiator' ? '#dfeaec' : f.kind === 'riser' ? '#f3d9c4' : '#d9dedc'}
+          stroke={selected.has(f.id) ? '#d2691e' : orig ? 'none' : f.kind === 'riser' ? '#c8773f' : f.kind === 'radiator' ? '#7fa3a8' : '#8a9492'} strokeWidth={selected.has(f.id) ? 3 : 1} vectorEffect="non-scaling-stroke"
           strokeDasharray={editor && !f.verifiedByManager ? '5 4' : undefined} opacity={mode === 'client' && f.kind === 'void' ? 0.6 : 1} />
       ))}
 
@@ -115,9 +118,9 @@ export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanVi
               strokeDasharray={w.verifiedByManager ? undefined : '6 4'} vectorEffect="non-scaling-stroke" onClick={e => p.onElementClick?.('wall', w.id, e)} />
           ))
         : !orig && <path data-layer="wall-base" data-room-walls={!!band} d={geomPath(displayedWalls)} fill={pal.wall} fillRule="evenodd" />}
-      {!editor && typedWalls.filter(({ wall }) => !orig || wall.source === 'manual').map(({ wall: w, geom }) => <path key={'typed' + w.id}
-        data-wall-id={w.id} data-wall-kind={w.kind} d={geomPath(geom)} fill={w.kind === 'unknown' ? `url(#${unknownPatternId})` : w.kind === 'partition' ? pal.text : pal.wall}
-        fillRule="evenodd" stroke={pal.wall} strokeWidth={0.6} vectorEffect="non-scaling-stroke" />)}
+      {!editor && typedWalls.filter(({ wall }) => !orig || wall.source === 'manual' || !!p.onElementClick).map(({ wall: w, geom }) => <path key={'typed' + w.id}
+        data-wall-id={w.id} data-wall-kind={w.kind} data-selected={selected.has(w.id)} d={geomPath(geom)} fill={orig && w.source !== 'manual' ? 'transparent' : w.kind === 'unknown' ? `url(#${unknownPatternId})` : w.kind === 'partition' ? pal.text : pal.wall}
+        fillRule="evenodd" stroke={selected.has(w.id) ? '#d2691e' : pal.wall} strokeWidth={selected.has(w.id) ? 3 : 0.6} vectorEffect="non-scaling-stroke" onClick={e => p.onElementClick?.('wall', w.id, e)} />)}
 
       {/* Проёмы */}
       {!orig && g.openings.map((o) => {
@@ -144,13 +147,17 @@ export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanVi
         );
       })}
 
+      {orig && p.onElementClick && g.openings.map(o => <path key={o.id} data-opening-id={o.id} data-selected={selected.has(o.id)} d={polyPath(segmentRectLocal(o.a, o.b, o.thickness))} fill="transparent" stroke={selected.has(o.id) ? '#d2691e' : 'none'} strokeWidth={3} vectorEffect="non-scaling-stroke" onClick={e => p.onElementClick?.('opening', o.id, e)} />)}
+
       {/* Подписи помещений */}
       {mode !== 'thumb' && !orig && g.rooms.map((r) => {
         const c = labelPoint(r.polygon);
+        const bounds = bbox(r.polygon);
+        const roomFont = Math.min(fs, Math.max(30, (bounds.maxX - bounds.minX) * .78 / Math.max(1, Array.from(r.name).length * .68)), Math.max(30, (bounds.maxY - bounds.minY) / 4));
         return (
-          <g key={'l' + r.id} pointerEvents="none" fontFamily="Manrope, Arial, sans-serif" textAnchor="middle">
-            <text x={c.x} y={c.y} fontSize={fs} fontWeight={700} fill={pal.text} letterSpacing={fs * 0.04}>{r.name.toUpperCase()}</text>
-            <text x={c.x} y={c.y + fs * 1.25} fontSize={fs * 0.85} fill="#7e898c">{(roomArea(r.polygon) / 1e6).toFixed(1).replace('.', ',')} м²</text>
+          <g key={'l' + r.id} data-room-label={r.id} pointerEvents="none" fontFamily="Manrope, Arial, sans-serif" textAnchor="middle">
+            <text x={c.x} y={c.y} fontSize={roomFont} fontWeight={700} fill={pal.text} letterSpacing={roomFont * 0.04}>{r.name.toUpperCase()}</text>
+            <text x={c.x} y={c.y + roomFont * 1.25} fontSize={roomFont * 0.85} fill="#7e898c">{(roomArea(r.polygon) / 1e6).toFixed(1).replace('.', ',')} м²</text>
           </g>
         );
       })}

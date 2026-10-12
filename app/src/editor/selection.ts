@@ -3,9 +3,10 @@ import { dist, add, mul, norm, sub, projectOnSegment } from '../geometry/poly';
 import { ROOM_TYPES, roomName, simpleRing } from '../learning/model';
 
 export type ElementSelection = { kind: 'wall' | 'opening' | 'fixed' | 'room' | 'wet'; id: string };
+export type PlanSelection = ElementSelection | { kind: 'item'; id: string };
 export const ELEMENT_KEYS = { wall: 'walls', opening: 'openings', fixed: 'fixed', room: 'rooms', wet: 'wetZones' } as const;
 export const FIXED_TYPES: [FixedKind, string][] = [['shaft', 'Шахта'], ['vent', 'Вентканал'], ['radiator', 'Радиатор'], ['electrical', 'Электрощиток'], ['column', 'Колонна'], ['riser', 'Стояк'], ['void', 'Полость вне площади'], ['other', 'Другое']];
-export function selectElement(current: ElementSelection[], element: ElementSelection, additive: boolean): ElementSelection[] {
+export function selectElement<T extends PlanSelection>(current: T[], element: T, additive: boolean): T[] {
   if (!additive) return [element];
   return current.some(s => s.kind === element.kind && s.id === element.id) ? current.filter(s => s.kind !== element.kind || s.id !== element.id) : [...current, element];
 }
