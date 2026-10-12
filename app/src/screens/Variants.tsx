@@ -205,7 +205,13 @@ function VariantDetail({ v, busy, onRebuildRoom }: { v: Variant; busy: boolean; 
   const live = (next: FurnitureItem[]) => { itemsRef.current = next; setItems(next); };
   const record = (before: FurnitureItem[], restoreGeometry = false) => setHistory(h => ({ past: [...h.past.slice(-99), { items: before, geometry: g, restoreGeometry }], future: [] }));
   const setGeometry = (next: PlanGeometry) => update(p => ({ ...p, geometry: next, variants: p.variants.map(x => ({ ...x, approved: false })), selectedVariantId: null, review: null }));
-  const restore = (snapshot: Snapshot) => { if (snapshot.restoreGeometry && snapshot.geometry !== g) setGeometry(snapshot.geometry); live(snapshot.items); setPlanSelection([]); };
+  const restore = (snapshot: Snapshot) => {
+    if (snapshot.restoreGeometry && snapshot.geometry !== g) setGeometry(snapshot.geometry);
+    live(snapshot.items);
+    const geometry = snapshot.restoreGeometry ? snapshot.geometry : g;
+    setPlanSelection(current => current.filter(s => s.kind === 'item' ? snapshot.items.some(i => i.id === s.id) :
+      (s.kind === 'wall' ? geometry.walls : s.kind === 'opening' ? geometry.openings : s.kind === 'fixed' ? geometry.fixed : s.kind === 'room' ? geometry.rooms : geometry.wetZones).some(i => i.id === s.id)));
+  };
   const changeItems = (fn: (list: FurnitureItem[]) => FurnitureItem[]) => { if (busy) return; const before = itemsRef.current, next = fn(before); if (JSON.stringify(before) === JSON.stringify(next)) return; record(before); live(next); };
   const undoItems = () => {
     if (drag.current) { live(drag.current.before); drag.current = null; setDragging(false); setGuides([]); return; }
@@ -339,7 +345,7 @@ function VariantDetail({ v, busy, onRebuildRoom }: { v: Variant; busy: boolean; 
           {selectedItems.length > 1 && <span className="badge">Выбрано предметов: {selectedItems.length}</span>}
           {geometrySelection.length > 0 && <><span className="badge" data-mixed-selection={planSelection.length}>Выбрано элементов: {planSelection.length} · мебели: {selection.length} · элементов плана: {geometrySelection.length}</span><button className="btn ghost sm" onClick={remove}>Удалить выбранную группу ({planSelection.length})</button></>}
           {commonType && !selectedLocked && <label className="field">Тип выбранной мебели<select value={commonType} onChange={e => { const type = e.target.value as FurnitureType; changeItems(list => list.map(i => selection.includes(i.id) && !i.locked ? changeFurnitureType(i, type) : i)); }}>{ADDABLE.map(type => <option key={type} value={type}>{CATALOG[type].name}</option>)}</select></label>}
-          {selectedItems.length > 1 && <><button className="btn secondary sm" onClick={rotate}>Повернуть выбранные (R)</button><button className="btn ghost sm" onClick={remove}>Удалить выбранные предметы</button></>}
+          {selectedItems.length > 1 && <><button className="btn secondary sm" onClick={rotate}>Повернуть выбранные (R)</button><button className="btn ghost sm" onClick={remove}>{geometrySelection.length ? 'Удалить выбранные элементы' : 'Удалить выбранные предметы'}</button></>}
           <label className="field" style={{ minWidth: 200 }}><span className="hint">Добавить предмет</span>
             <select value="" onChange={(e) => e.target.value && addItem(e.target.value as FurnitureType)}>
               <option value="">— выберите —</option>
