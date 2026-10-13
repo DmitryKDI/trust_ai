@@ -138,3 +138,21 @@ test('контур комнаты замыкается Enter на последн
   const markup = page.locator('.editor svg').first(); await click(page, markup, 6000, 1000); await click(page, markup, 8500, 2800); await page.keyboard.press('Enter');
   await expect.poll(async () => (await saved(page))?.geometry.rooms.at(-1)?.polygon.length).toBe(4);
 });
+
+test('стены привязываются к стороне распознанной зоны без ручных стен в обоих редакторах', async ({ page }) => {
+  const p = await example(page);
+  p.geometry.walls = [];
+  p.geometry.rooms = p.geometry.rooms.map(r => ({ ...r, source: 'suggested', verifiedByManager: false }));
+  p.geometry.approvedHash = geometryHash(p.geometry); p.variants[0].geometryHash = geometryHash(p.geometry);
+  await page.goto('/'); await page.locator('input[type=file]').setInputFiles({ name: 'recognized.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ format: 'trust-planner-project', version: 1, project: p, files: {} })) });
+  for (const editor of ['quick', 'markup']) {
+    if (editor === 'markup') await page.getByRole('button', { name: /Разметка/ }).first().click();
+    const root = editor === 'quick' ? page.locator('details').filter({ has: page.locator('summary', { hasText: /^Быстрая правка/ }) }) : page.locator('.view');
+    const svg = editor === 'quick' ? root.locator('svg') : page.locator('.editor svg').first();
+    await root.getByRole('button', { name: 'Стена', exact: true }).click();
+    await click(page, svg, 180, 2000); await click(page, svg, 180, 3000); await page.keyboard.press('Enter');
+    await expect.poll(async () => (await saved(page))?.geometry.walls[0]?.a).toEqual({ x: 150, y: 2000 });
+    await expect.poll(async () => (await saved(page))?.geometry.walls[0]?.b).toEqual({ x: 150, y: 3000 });
+    await page.keyboard.press('Control+z'); await expect(svg.locator('[data-wall-id]')).toHaveCount(0);
+  }
+});

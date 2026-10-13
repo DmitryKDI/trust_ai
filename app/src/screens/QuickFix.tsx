@@ -8,13 +8,14 @@ import { RecognitionLegend, RecognitionOverlay } from '../plan/RecognitionOverla
 import { PlanView, planBounds, polyPath } from '../plan/PlanView';
 import { geometryHash, usesRoomWalls, detectRoomPolygon } from '../geometry/plan';
 import { dist, pointInPolygon, type BBox } from '../geometry/poly';
-import { addPlanWallChain, orthogonalPoint, resizeOpening, snapPolylineClosure, WALL_KINDS } from '../editor/ops';
+import { addPlanWallChain, resizeOpening, snapPolylineClosure, WALL_KINDS } from '../editor/ops';
 import { ownsShortcut, historyShortcut } from '../editor/keyboard';
 import { BatchProperties } from '../editor/BatchProperties';
 import { GeometryHandles, WallAngle } from '../editor/GeometryHandles';
 import { deleteSelection, selectElement, type ElementSelection } from '../editor/selection';
 import { useDraftHistory } from '../editor/useDraftHistory';
-import { repairWallJunctions, snapWallAxis } from '../editor/wallJunctions';
+import { repairWallJunctions } from '../editor/wallJunctions';
+import { snapGeometryPoint } from '../editor/geometrySnap';
 import { SizeInput } from '../editor/SizeInput';
 import { doorAt, mergeRooms, newRoomFromImage, roomFromCorners, roomFromPoints, splitRoom, type ImageData8 } from '../editor/quickfix';
 import { ROOM_TYPES, roomName } from '../learning/model';
@@ -157,7 +158,7 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
   };
 
   const mmPerPx = () => { const svg = svgRef.current; const m = svg?.getScreenCTM(); return m ? 1 / Math.hypot(m.a, m.b) : 20; };
-  const wallPoint = (raw: Pt, shift: boolean) => snapPolylineClosure(raw, draft, 12 * mmPerPx()) ?? (tool === 'wall' ? snapWallAxis(raw, g.walls, 12 * mmPerPx(), draft.at(-1) ?? null, shift) : shift && draft.length ? orthogonalPoint(draft[draft.length - 1], raw) : raw);
+  const wallPoint = (raw: Pt, shift: boolean) => snapPolylineClosure(raw, draft, 12 * mmPerPx()) ?? snapGeometryPoint(raw, g, 12 * mmPerPx(), { anchor: draft.at(-1), ortho: shift, preferWallAxes: tool === 'wall' }).p;
   const finishWalls = (points = draft) => {
     if (points.length < 2) return;
     fix(x => addPlanWallChain(x, points, { thickness: wallT, kind: wallKind }), 'Стены добавлены. Пересоберите мебель. Ctrl+Z — отменить всю полилинию.');
@@ -225,8 +226,8 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
       return;
     }
     if (tool === 'rect') {
-      if (!draft.length) { setDraft([p]); return; }
-      const poly = roomFromCorners(draft[0], p, g.rooms);
+      if (!draft.length) { setDraft([wallPoint(p, e.shiftKey)]); return; }
+      const poly = roomFromCorners(draft[0], wallPoint(p, e.shiftKey), g.rooms);
       setDraft([]);
       if (!poly) { setMsg('Прямоугольник слишком мал или целиком занят другими помещениями.'); return; }
       const room: Room = { id: uid('r'), name: nameOf(newRoomType), type: newRoomType, typeSource: 'manual', polygon: poly, source: 'manual', verifiedByManager: true, sourcePage: g.sourcePage };
@@ -320,18 +321,6 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
         <button className="tool" onClick={() => { const next = repairWallJunctions(g); if (next === g) setMsg('Близких разрывов в углах не найдено. Проверьте все стены и двери.'); else fix(() => next, 'Углы стен соединены. Ctrl+Z — отменить.'); }} title="Соединить близкие стыки до 120 мм, сохраняя оси стен и проёмы">Соединить углы стен</button>
         <button className="tool" onClick={() => setView(null)}>Вписать</button>
       </div>
-      {(tool === 'add' || tool === 'rect' || tool === 'roomPoly') && <label className="field" style={{ maxWidth: 360 }}>Назначение новой зоны<select value={newRoomType} onChange={e => setNewRoomType(e.target.value as RoomType)}>{ROOM_TYPES.map(([t, label]) => <option key={t} value={t}>{label}</option>)}</select></label>}
-      {tool === 'roomPoly' && <div className="actions"><button className="btn sm" disabled={draft.length < 2} onClick={() => finishRoom()}>Заполнить комнату (Enter)</button><button className="btn ghost sm" disabled={!draft.length} onClick={() => setDraft([])}>Отменить контур (Esc)</button><span className="hint">Углов: {draft.length}. Две точки — прямоугольник; три и больше — контур.</span></div>}
-      {tool === 'wall' && <div className="fields">
-        <label className="field">Тип новой стены<select value={wallKind} onChange={e => setWallKind(e.target.value as WallKind)}>{WALL_KINDS.map(([t, label]) => <option key={t} value={t}>{label}</option>)}</select></label>
-        <label className="field">Толщина новой стены, мм<input type="number" min="30" value={wallT} onChange={e => setWallT(Math.max(30, Number(e.target.value) || 100))} /></label>
-        <div className="actions"><button className="btn sm" disabled={draft.length < 2} onClick={() => finishWalls()}>Завершить стены (Enter)</button><button className="btn ghost sm" disabled={!draft.length} onClick={() => setDraft([])}>Отменить рисование (Esc)</button></div>
-      </div>}
-      {tool === 'door' && <div className="fields">
-        <SizeInput label="Ширина новой двери, мм" value={doorWidth} min={300} max={6000} onCommit={setDoorWidth} />
-        <label className="field">Створки новой двери<select value={doorLeaves} onChange={e => setDoorLeaves(Number(e.target.value) as 1 | 2)}><option value={1}>Одна створка</option><option value={2}>Две равные створки</option></select></label>
-      </div>}
-      {g.rooms.length > 0 && (g.walls.length > 0 || tool === 'wall') && <label className="check-inline"><input type="checkbox" checked={usesRoomWalls(g)} onChange={e => fix(x => ({ ...x, wallMode: e.target.checked ? 'rooms' : 'explicit' }), 'Основа стен изменена. Пересоберите варианты.')} />Использовать границы зон как основу стен</label>}
       <div className="actions" style={{ marginTop: 10 }}>
         <label className="check-inline"><input type="checkbox" checked={showRecognition} disabled={originalOnly && !!img} onChange={e => setShowRecognition(e.target.checked)} />Подсветка найденных и ручных элементов</label>
         {img && <label className="check-inline"><input type="checkbox" checked={originalOnly} onChange={e => { stopPan(); setOriginalOnly(e.target.checked); setDraft([]); setFirst(null); setSel(null); }} />Только исходный план</label>}
@@ -339,6 +328,7 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
       {showRecognition && !showOriginal && <RecognitionLegend geometry={g} />}
       <p className="hint">Синий пунктир — найдено программой, зелёный — проверено, оранжевый — вручную. Сравните с исходником: непомеченные детали нужно добавить.</p>
       {usesRoomWalls(g) && !g.walls.length && <p className="hint">Стены построены по границам найденных зон. Отдельные перегородки пока не выделены — проверьте и дорисуйте их.</p>}
+      <div className="quick-editor-layout">
       <div className="canvas-wrap qf-canvas">
         <PlanView ref={svgRef} g={shownGeometry} mode="editor" viewBox={vb} selectedIds={selection.map(s => s.id)} labelScale={1.8}
           underlay={img ? { url: img.url, widthMm: img.widthMm, heightMm: img.heightMm, opacity: showOriginal ? 1 : 0.65 } : null}
@@ -359,6 +349,21 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
         <div className="canvas-hint">{originalOnly && img ? 'Исходный план: перетаскивайте мышью, колесо — масштаб. Выключите «Только исходный план», чтобы вернуться к правке.' : msg ?? TOOLS.find((t) => t.id === tool)!.hint}</div>
       </div>
 
+      <aside className="object-inspector" aria-label="Параметры объекта">
+        <h3>Параметры объекта</h3>
+        {!selection.length && (tool === 'select' || tool === 'pan' || tool === 'merge') && <p className="muted small">Выберите стену, дверь, окно или комнату на плане. Shift + щелчок — выбрать несколько.</p>}
+      {(tool === 'add' || tool === 'rect' || tool === 'roomPoly') && <label className="field" style={{ maxWidth: 360 }}>Назначение новой зоны<select value={newRoomType} onChange={e => setNewRoomType(e.target.value as RoomType)}>{ROOM_TYPES.map(([t, label]) => <option key={t} value={t}>{label}</option>)}</select></label>}
+      {tool === 'roomPoly' && <div className="actions"><button className="btn sm" disabled={draft.length < 2} onClick={() => finishRoom()}>Заполнить комнату (Enter)</button><button className="btn ghost sm" disabled={!draft.length} onClick={() => setDraft([])}>Отменить контур (Esc)</button><span className="hint">Углов: {draft.length}. Две точки — прямоугольник; три и больше — контур.</span></div>}
+      {tool === 'wall' && <div className="fields">
+        <label className="field">Тип новой стены<select value={wallKind} onChange={e => setWallKind(e.target.value as WallKind)}>{WALL_KINDS.map(([t, label]) => <option key={t} value={t}>{label}</option>)}</select></label>
+        <label className="field">Толщина новой стены, мм<input type="number" min="30" value={wallT} onChange={e => setWallT(Math.max(30, Number(e.target.value) || 100))} /></label>
+        <div className="actions"><button className="btn sm" disabled={draft.length < 2} onClick={() => finishWalls()}>Завершить стены (Enter)</button><button className="btn ghost sm" disabled={!draft.length} onClick={() => setDraft([])}>Отменить рисование (Esc)</button></div>
+      </div>}
+      {tool === 'door' && <div className="fields">
+        <SizeInput label="Ширина новой двери, мм" value={doorWidth} min={300} max={6000} onCommit={setDoorWidth} />
+        <label className="field">Створки новой двери<select value={doorLeaves} onChange={e => setDoorLeaves(Number(e.target.value) as 1 | 2)}><option value={1}>Одна створка</option><option value={2}>Две равные створки</option></select></label>
+      </div>}
+      {g.rooms.length > 0 && (g.walls.length > 0 || tool === 'wall') && <label className="check-inline"><input type="checkbox" checked={usesRoomWalls(g)} onChange={e => fix(x => ({ ...x, wallMode: e.target.checked ? 'rooms' : 'explicit' }), 'Основа стен изменена. Пересоберите варианты.')} />Использовать границы зон как основу стен</label>}
       <BatchProperties geometry={g} selection={selection} onChange={fix} onDelete={removeSelected} />
       {sel && <><WallAngle geometry={g} selection={sel} onChange={fix} onError={setMsg} /><p className="hint">Перетаскивайте точки на углах выбранной фигуры. Shift — ортогональ; Alt — без привязки.</p></>}
       {room && (
@@ -405,6 +410,8 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
         <button className="btn ghost sm" onClick={() => { fix(x => ({ ...x, walls: x.walls.filter(w => w.id !== wall.id) }), 'Стена удалена.'); setSel(null); }}>Удалить стену</button>
       </div>}
       {(wall || tool === 'wall') && <p className="muted small">Тёмная стена — несущая, светлее — перегородка, штриховка — тип неизвестен. Тип задаётся вами. Стена не разделяет назначения зон: для этого используйте «Разрезать».</p>}
+      </aside>
+      </div>
       {changed && (
         <div className="actions">
           <button className="btn" disabled={busy} onClick={() => { setChanged(false); onRebuild(); }}>{busy ? 'Пересобираю…' : 'Пересобрать варианты по исправленному плану'}</button>

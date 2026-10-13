@@ -335,6 +335,12 @@ function VariantDetail({ v, busy, onRebuildRoom }: { v: Variant; busy: boolean; 
           {sel && !sel.locked && !busy && <FurnitureHandles item={sel} radius={6 * mmPerPx()} onDown={onResizeDown} />}
           <MeasurementGuides measurements={measurements} unit={mmPerPx()} />
         </PlanView>
+        <p className="fineprint">Перетаскивайте мебель; Shift + щелчок — добавить или исключить любой предмет, стену, проём или зону. Маркеры на сторонах и углах — изменить размер. Alt — временно без прилипания. Ctrl+Z — отменить правку. Красная рамка — нарушение, жёлтая — замечание.</p>
+      </div>
+      <aside className="panel">
+        <section className="card object-inspector" aria-label="Параметры мебели">
+          <h3>Параметры объекта</h3>
+          {!planSelection.length && <p className="muted small">Выберите мебель на плане, чтобы изменить её размеры, тип и положение.</p>}
         <div className="actions" style={{ marginTop: 10 }}>
           <button className="btn secondary sm" disabled={!history.past.length} onClick={undoItems}>Отменить мебель</button>
           <button className="btn secondary sm" disabled={!history.future.length} onClick={redoItems}>Повторить мебель</button>
@@ -370,9 +376,8 @@ function VariantDetail({ v, busy, onRebuildRoom }: { v: Variant; busy: boolean; 
         {measurements.length > 0 && <ul className="list small" aria-label="Расстояния выбранного предмета">{measurements.map(m => <li key={m.id}>{m.label}: {m.mm} мм</li>)}</ul>}
         <div className="actions"><label className="field">Комната для пересборки<select aria-label="Комната для пересборки" value={roomToRebuild} onChange={e => setRoomToRebuild(e.target.value)}>{g.rooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label><button className="btn secondary sm" disabled={busy || !roomToRebuild || dragging} onClick={() => onRebuildRoom(roomToRebuild)}>Пересобрать только эту комнату</button></div>
         <p className="hint">Мебель в остальных комнатах и закреплённые предметы останутся на своих местах.</p>
-        <p className="fineprint">Перетаскивайте мебель; Shift + щелчок — добавить или исключить любой предмет, стену, проём или зону. Маркеры на сторонах и углах — изменить размер. Alt — временно без прилипания. Ctrl+Z — отменить правку. Красная рамка — нарушение, жёлтая — замечание.</p>
-      </div>
-      <aside className="panel">
+        </section>
+
         <div className="card">
           <h3>{v.title}</h3>
           <p className="small muted" style={{ marginTop: 0 }}>{v.idea}</p>

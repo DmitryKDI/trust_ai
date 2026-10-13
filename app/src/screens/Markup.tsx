@@ -13,7 +13,8 @@ import { BatchProperties } from '../editor/BatchProperties';
 import { GeometryHandles, WallAngle } from '../editor/GeometryHandles';
 import { deleteSelection, selectElement, type ElementSelection } from '../editor/selection';
 import { useDraftHistory } from '../editor/useDraftHistory';
-import { repairWallJunctions, snapWallAxis } from '../editor/wallJunctions';
+import { repairWallJunctions } from '../editor/wallJunctions';
+import { snapGeometryPoint } from '../editor/geometrySnap';
 import { SizeInput } from '../editor/SizeInput';
 import { SnapIndex } from '../pdf/vectors';
 import { detectRoomPolygon, geometryHash, openingWidth, roomArea } from '../geometry/plan';
@@ -104,8 +105,11 @@ export function MarkupScreen({ next }: { next: () => void }) {
     const closed = (tool === 'wall' || tool === 'roomPoly') ? snapPolylineClosure(raw, draft, 12 * mmPerPx()) : null;
     if (closed) return { p: closed, kind: 'closure' as const };
     const anchor = draft.length ? draft[draft.length - 1] : null;
-    if (tool === 'wall') return { p: snapWallAxis(raw, g.walls, 12 * mmPerPx(), anchor, shift || ortho), kind: 'geometry' as SnapKind };
     const linear = ['wall', 'door', 'window', 'calibrate', 'roomPoly'].includes(tool);
+    if (['wall', 'door', 'window', 'roomPoly', 'fixed', 'wet'].includes(tool)) {
+      const result = snapGeometryPoint(raw, g, 12 * mmPerPx(), { anchor, ortho: shift || ortho && linear && (tool !== 'roomPoly' || draft.length >= 2), preferWallAxes: tool === 'wall' });
+      if (result.kind !== 'none' || !index || !vecSnap) return result;
+    }
     return snapPoint(raw, { g, k, index, radiusMm: 12 * mmPerPx(), anchor, ortho: ortho && linear && (tool !== 'roomPoly' || draft.length >= 2), forceOrtho: shift && linear, vectors: vecSnap });
   };
 

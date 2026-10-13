@@ -4,6 +4,7 @@ import { dist } from '../geometry/poly';
 import { polyPath } from '../plan/PlanView';
 import { geometryVertices, moveGeometryVertex, type ElementSelection } from './selection';
 import { orthogonalPoint } from './ops';
+import { snapGeometryPoint } from './geometrySnap';
 
 export function GeometryHandles({ geometry, selection, radius, onChange, onError }: { geometry: PlanGeometry; selection: ElementSelection | null; radius: number; onChange: (fn: (g: PlanGeometry) => PlanGeometry) => void; onError: (message: string) => void }) {
   const [preview, setPreview] = useState<Pt[] | null>(null);
@@ -21,10 +22,8 @@ export function GeometryHandles({ geometry, selection, radius, onChange, onError
     if (!d.moved && dist(raw, d.start) < radius / 3) return; d.moved = true;
     let p: Pt = { x: Math.round(raw.x / 10) * 10, y: Math.round(raw.y / 10) * 10 };
     if (e.shiftKey) p = orthogonalPoint(d.before[(d.index + d.before.length - 1) % d.before.length], p);
-    if (!e.altKey && !e.shiftKey) {
-      const points = [...d.original.walls.flatMap(w => [w.a, w.b]), ...d.original.openings.flatMap(o => [o.a, o.b]), ...d.original.rooms.flatMap(r => r.polygon), ...d.original.fixed.flatMap(f => f.polygon), ...d.original.wetZones.flatMap(z => z.polygon)].filter(q => dist(q, d.before[d.index]) > 1);
-      const nearby = points.filter(q => dist(q, p) < radius * 2).sort((a, b) => dist(a, p) - dist(b, p))[0];
-      if (nearby) p = nearby;
+    if (!e.altKey) {
+      p = snapGeometryPoint(p, d.original, radius * 2, { anchor: d.before[(d.index + d.before.length - 1) % d.before.length], ortho: e.shiftKey, preferWallAxes: d.sel.kind === 'wall', excludePoint: d.before[d.index] }).p;
     }
     d.point = p; setPreview(d.before.map((q, i) => i === d.index ? p : q));
   };
