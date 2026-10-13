@@ -129,6 +129,10 @@ test('installed Windows app: bad checksum is rejected; real update preserves the
     expect(metadataRequests).toBeGreaterThanOrEqual(2); expect(installerRequests).toBe(2);
     const project = newProject({ alias: 'Проект после обновления', city: 'Москва', manager: 'До обновления', date: '2026-10-13' });
     await page.locator('input[type=file]').setInputFiles({ name: 'update-project.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ format: 'trust-planner-project', version: 1, project, files: {} })) });
+    // Import is asynchronous; the home form also has a manager field.
+    // Wait for the actual project before making the edit that must survive.
+    await expect(page.getByRole('heading', { name: 'О проекте', exact: true })).toBeVisible();
+    await expect(page.getByLabel('Менеджер', { exact: true })).toHaveValue('До обновления');
     await page.getByLabel('Менеджер', { exact: true }).fill('Последняя правка перед обновлением');
     const exited = new Promise(resolve => app!.process().once('exit', resolve));
     await panel.getByRole('button', { name: 'Установить и перезапустить', exact: true }).click();
