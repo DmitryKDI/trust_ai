@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-const { assetPath, isAppUrl, pdfName } = createRequire(import.meta.url)('../desktop/security.cjs');
+const { assetPath, isAppUrl, isCompanyUrl, pdfName } = createRequire(import.meta.url)('../desktop/security.cjs');
 
 describe('desktop boundary', () => {
   const root = path.resolve('dist');
+  it('opens only the fixed company homepage outside the app', () => {
+    expect(isCompanyUrl('https://trustremont.ru')).toBe(true);
+    expect(isCompanyUrl('https://trustremont.ru/')).toBe(true);
+    for (const url of ['http://trustremont.ru', 'https://trustremont.ru.evil.test/', 'https://trustremont.ru@evil.test/', 'https://user@trustremont.ru/', 'https://trustremont.ru/?next=evil', 'file:///tmp/a', 'javascript:alert(1)']) expect(isCompanyUrl(url)).toBe(false);
+  });
   it('serves only compiled assets from the app origin', () => {
     expect(assetPath(root, 'trust://planner/')).toBe(path.join(root, 'index.html'));
     expect(assetPath(root, 'trust://planner/assets/app.js')).toBe(path.join(root, 'assets/app.js'));

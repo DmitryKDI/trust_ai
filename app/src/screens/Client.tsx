@@ -13,6 +13,7 @@ import { PlanView, planBounds, ScaleBar } from '../plan/PlanView';
 import { COST_INFO } from '../rules/rules';
 import { interiorGeom } from '../geometry/plan';
 import { geomArea } from '../geometry/poly';
+import './client.css';
 
 const mln = (v: number) => (v / 1e6).toFixed(2).replace('.', ',');
 
@@ -54,43 +55,57 @@ export function ClientScreen({ back }: { back: () => void }) {
         }}>{exporting ? 'Сохранение PDF…' : isDesktop ? 'Сохранить PDF' : 'Печать / PDF'}</button>
         <span className="muted small" role="status">{pdfMessage || (isDesktop ? 'Выберите папку для сохранения КП.' : 'Для PDF выберите «Сохранить как PDF» в окне печати.')}</span>
       </div>
-      <article className="client">
-        <header className="clienthero">
+      <article className="client proposal">
+        <section className="proposal-cover" aria-label="Титульный слайд коммерческого предложения">
+          <div className="proposal-brand"><span className="proposal-mark" aria-hidden="true">Т</span><div>ТРАСТ РЕМОНТ<small>Ремонт квартир · Москва и область</small></div></div>
+          <div className="proposal-cover-copy">
+            <div className="eyebrow">Персональное предложение · {project.alias}</div>
+            <h1>Квартира, в которой<br />удобно жить.</h1>
+            <p className="proposal-cover-lead">Продуманная планировка, ваш стиль и понятный ориентир бюджета — до начала ремонта.</p>
+            <div className="proposal-cover-line" />
+            <p>Сначала выбираем решение вместе.<br />Затем уточняем смету и план работ.</p>
+          </div>
+          <div className="proposal-promises">
+            <div><b>Под ваш образ жизни</b><span>Сравните решения для своей квартиры</span></div>
+            <div><b>Прозрачно по бюджету</b><span>Стоимость работ и состав расчёта</span></div>
+            <div><b>Понятный следующий шаг</b><span>Обсуждение, обмер и подробная смета</span></div>
+          </div>
+          <div className="proposal-cover-bottom"><span>Концепция для первой встречи</span><a href="https://trustremont.ru" target="_blank" rel="noopener noreferrer">trustremont.ru</a></div>
+        </section>
+        <header className="clienthero proposal-page">
           <div>
             <div className="eyebrow" style={{ color: '#c7a990' }}>Траст ремонт · концепция для обсуждения</div>
-            <h1>{variants.length === 3 ? 'Три варианта для вашей квартиры' : 'Варианты для вашей квартиры'}</h1>
+            <h2>{variants.length === 3 ? 'Три варианта для вашей квартиры' : 'Варианты для вашей квартиры'}</h2>
             <p>Рекомендуем: {v.title}. {v.idea}.</p>
             <div className="counts" style={{ marginTop: 14 }}>
-              {area > 0 && <span className="badge">{area.toFixed(1).replace('.', ',')} м² по обмеру</span>}
-              {rooms > 0 && <span className="badge">{rooms} {rooms === 1 ? 'жилая комната' : 'жилые комнаты'}</span>}
+              {area > 0 && <span className="badge">{area.toFixed(1).replace('.', ',')} м² по плану</span>}
+              {rooms > 0 && <span className="badge">{rooms} {rooms === 1 ? 'жилая комната' : rooms < 5 ? 'жилые комнаты' : 'жилых комнат'}</span>}
               <span className="badge">{c.styleName}</span>
             </div>
           </div>
           <div className="planbox">
             <PlanView g={g} items={v.items} mode="client" viewBox={vb} wallImage={project.planImage} planStyle={project.planStyle} ariaLabel={`Предварительная схема: ${v.title}`}><ScaleBar vb={vb} /></PlanView>
           </div>
+          <div className="proposal-selected-benefits">
+            <div className="eyebrow">Почему рекомендуем это решение</div>
+            <div className="benefits">{v.benefits.slice(0, 6).map(b => <div className="benefit" key={b}>{b}</div>)}</div>
+            {v.compromises.filter(x => !x.startsWith('Не поместилось')).length > 0 && <p className="small">Что учесть: {v.compromises.filter(x => !x.startsWith('Не поместилось')).join('; ')}.</p>}
+          </div>
         </header>
         <div className="clientbody">
           {variants.length < 3 && <div className="notice no-print">Готово {variants.length} из 3 вариантов. Пересоберите или доработайте остальные на шаге «Варианты».</div>}
-          <section>
-            <div className="eyebrow">Сравните решения</div><h2>Планировки и 3D-визуализации</h2>
-            <div className="client-variants">{variants.map((variant, i) => <article className="client-variant" key={variant.id}>
-              <div className="eyebrow">Вариант {i + 1}{variant.id === v.id ? ' · рекомендуемый' : ''}</div><h3>{variant.title}</h3><p className="small">{variant.idea}.</p>
+          <section className="proposal-comparison" aria-label="Сравнение вариантов">
+            <div className="client-variants">{variants.map((variant, i) => <article className="client-variant proposal-page" key={variant.id}>
+              <div className="eyebrow">Сравните решения · Вариант {i + 1}{variant.id === v.id ? ' · рекомендуемый' : ''}</div><h2>{variant.title}</h2><p className="small">{variant.idea}.</p>
+              <div className="proposal-variant-views">
               <SceneImage geometry={g} items={variant.items} settings={settings} catalog={c.materialCatalog ?? EMPTY_CATALOG} palette={c.palette} title={variant.title} />
               <PlanView g={g} items={variant.items} mode="client" viewBox={vb} wallImage={project.planImage} planStyle={project.planStyle} ariaLabel={`План варианта ${i + 1}: ${variant.title}`} />
+              </div>
               <ul className="list">{variant.benefits.slice(0, 3).map(b => <li key={b}>{b}</li>)}</ul>
               {variant.compromises.length > 0 && <p className="muted small">Что учесть: {variant.compromises.filter(x => !x.startsWith('Не поместилось')).join('; ')}.</p>}
             </article>)}</div>
           </section>
-          <section>
-            <div className="eyebrow">Что получает квартира</div>
-            <h2>Польза решения</h2>
-            <div className="benefits">{v.benefits.slice(0, 6).map((b) => <div className="benefit" key={b}>{b}</div>)}</div>
-            {v.compromises.filter((x) => !x.startsWith('Не поместилось')).length > 0 && (
-              <p className="muted small" style={{ marginTop: 12 }}>Что учесть: {v.compromises.filter((x) => !x.startsWith('Не поместилось')).join('; ')}.</p>
-            )}
-          </section>
-          <section>
+          <section className="proposal-page proposal-concept">
             <div className="eyebrow">Настроение интерьера</div>
             <h2>{c.styleName}</h2>
             <p className="muted">{c.rationale}</p>
@@ -108,7 +123,10 @@ export function ClientScreen({ back }: { back: () => void }) {
               ))}
             </div>
           </section>
-          <section className="cost">
+          <section className="proposal-page proposal-budget">
+            <div className="eyebrow">Бюджет и следующий шаг</div>
+            <h2>От идеи — к понятному плану ремонта</h2>
+            <div className="cost">
             <div>
               <strong style={{ font: '400 24px Prata, serif' }}>Ориентир стоимости работ</strong>
               <p className="small muted" style={{ margin: '6px 0 0' }}>{Math.round(rules.costRateMin / 1000)}–{Math.round(rules.costRateMax / 1000)} тыс. ₽ за м² × {area.toFixed(1).replace('.', ',')} м². Предварительно, до подробной сметы.</p>
@@ -118,16 +136,17 @@ export function ClientScreen({ back }: { back: () => void }) {
               <div><b>Входит</b><ul className="list">{COST_INFO.includes.map((x) => <li key={x}>{x}</li>)}</ul></div>
               <div><b>Не входит</b><ul className="list minus">{COST_INFO.excludes.map((x) => <li key={x}>{x}</li>)}</ul></div>
             </div>
-          </section>
+            </div>
           <p className="fineprint">
-            Предварительная концепция по обмерному плану. Схема, размеры мебели и стоимость уточняются в полноценном дизайн-проекте.
+            Предварительная концепция по предоставленному плану. Планировки и 3D — эскизы для обсуждения. Размеры, возможность перепланировки и стоимость уточняются после обмера и разработки дизайн-проекта.
             {v.assumptions.length > 0 && ` Допущения: ${v.assumptions.join('; ').toLowerCase()}.`}
           </p>
-        </div>
         <footer className="clientfooter">
-          <div><strong style={{ font: '400 22px Prata, serif' }}>Сделаем следующий шаг?</strong><p style={{ margin: '6px 0 0', color: '#7b6759' }}>Разработаем детальный проект под ваш образ жизни и бюджет.</p></div>
-          <button className="btn" onClick={() => alert('Менеджер согласует консультацию и подготовку полноценного дизайн-проекта.')}>Перейти к полноценному дизайн-проекту</button>
+          <div><strong style={{ font: '400 22px Prata, serif' }}>Обсудим вашу квартиру?</strong><p style={{ margin: '6px 0 0', color: '#7b6759' }}>Выберем планировку, уточним пожелания и подготовим подробную смету.</p><p className="small">{project.manager && `Ваш менеджер: ${project.manager}. `}Траст ремонт · {project.city || 'Москва и область'}</p></div>
+          <a className="btn" href="https://trustremont.ru" target="_blank" rel="noopener noreferrer">Обсудить ремонт</a>
         </footer>
+          </section>
+        </div>
       </article>
     </div>
   );

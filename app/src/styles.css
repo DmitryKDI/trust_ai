@@ -7,7 +7,7 @@
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
-body { background: var(--bg); color: var(--ink); font-family: Manrope, Arial, sans-serif; font-size: 15px; }
+body { background: var(--bg); color: var(--ink); font-family: Manrope, Arial, sans-serif; font-size: 15px; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
 button, input, textarea, select { font: inherit; color: inherit; }
 button { cursor: pointer; }
 :focus-visible { outline: 3px solid #ad8060; outline-offset: 2px; }

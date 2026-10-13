@@ -7,6 +7,10 @@ function isAppUrl(value) {
   try { const u = new URL(value); return u.protocol === 'trust:' && u.hostname === 'planner' && !u.port && !u.username && !u.password; }
   catch { return false; }
 }
+function isCompanyUrl(value) {
+  try { return new URL(value).href === 'https://trustremont.ru/'; }
+  catch { return false; }
+}
 function assetPath(root, value) {
   if (!isAppUrl(value)) return null;
   try {
@@ -20,4 +24,4 @@ function pdfName(value) {
   const safe = typeof value === 'string' ? value.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').trim().slice(0, 100) : '';
   return `Траст ремонт - ${safe.replace(/[. ]+$/, '') || 'концепция'}.pdf`;
 }
-module.exports = { MAIN_URL, CSP, isAppUrl, assetPath, pdfName };
+module.exports = { MAIN_URL, CSP, isAppUrl, isCompanyUrl, assetPath, pdfName };

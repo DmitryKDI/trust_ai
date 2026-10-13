@@ -1,8 +1,8 @@
-const { app, BrowserWindow, Menu, dialog, ipcMain, protocol, session } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, protocol, session, shell } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const { randomUUID } = require('node:crypto');
-const { MAIN_URL, CSP, isAppUrl, assetPath, pdfName } = require('./security.cjs');
+const { MAIN_URL, CSP, isAppUrl, isCompanyUrl, assetPath, pdfName } = require('./security.cjs');
 const { createUpdateController } = require('./updates.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'trust', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true, codeCache: true } }]);
@@ -49,7 +49,10 @@ else {
     });
     win = new BrowserWindow({ width: 1440, height: 960, minWidth: 1024, minHeight: 700, show: false, backgroundColor: '#f4ece3', title: 'Траст ремонт — Планировщик', icon: path.join(__dirname, 'icon.png'),
       webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, webviewTag: false, devTools: !app.isPackaged } });
-    win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    win.webContents.setWindowOpenHandler(({ url }) => {
+      if (isCompanyUrl(url)) void shell.openExternal('https://trustremont.ru/').catch(() => {});
+      return { action: 'deny' };
+    });
     win.webContents.on('will-navigate', event => { if (!isAppUrl(event.url)) event.preventDefault(); });
     win.webContents.on('will-frame-navigate', event => { if (!isAppUrl(event.url)) event.preventDefault(); });
     win.webContents.on('will-attach-webview', event => event.preventDefault());

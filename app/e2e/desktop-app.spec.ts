@@ -40,6 +40,13 @@ test('real packaged EXE: offline UI, safe renderer, import, three 3D views, nati
     await page.locator('input[type=file]').setInputFiles({ name: 'previous-version.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ format: 'trust-planner-project', version: 1, project, files: {} })) });
     await page.getByRole('button', { name: /Для клиента/ }).first().click();
     await expect(page.locator('[data-client-3d]')).toHaveCount(3);
+    await app.evaluate(({ shell }) => {
+      (globalThis as any).__companyLinks = [];
+      shell.openExternal = async url => { (globalThis as any).__companyLinks.push(url); };
+    });
+    await page.getByRole('link', { name: 'Обсудить ремонт', exact: true }).click();
+    await expect.poll(() => app.evaluate(() => (globalThis as any).__companyLinks)).toEqual(['https://trustremont.ru/']);
+    expect(page.url()).toBe('trust://planner/');
     const pdf = path.resolve(info.outputPath('native-client.pdf'));
     await fs.mkdir(path.dirname(pdf), { recursive: true });
     await app.evaluate(({ dialog }, filename) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: filename }); }, pdf);
