@@ -45,6 +45,29 @@ test('Рука, H, пробел, средняя кнопка и Вписать �
   await expect(svg.locator(`[data-room-id="${p.geometry.rooms[0].id}"]`)).toHaveAttribute('data-selected', 'true'); expect(errors).toEqual([]);
 });
 
+test('инструменты выбираются в русской раскладке, подсказки видны, ввод чисел не перехватывается', async ({ page }) => {
+  await example(page);
+  const root = quick(page), svg = root.locator('svg');
+  await expect(root.getByRole('button', { name: 'Рука', exact: true })).toBeVisible();
+  await page.evaluate(() => { (document.activeElement as HTMLElement)?.blur(); document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyH', key: 'р', bubbles: true })); });
+  await expect(root.getByRole('button', { name: 'Рука', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  for (const [code, key, label] of [['KeyV', 'м', 'Выбрать'], ['KeyW', 'ц', 'Стена'], ['KeyD', 'в', 'Дверь'], ['KeyP', 'з', 'Контур комнаты']]) {
+    await svg.evaluate((el, event) => el.dispatchEvent(new KeyboardEvent('keydown', { ...event, bubbles: true })), { code, key });
+    await expect(root.getByRole('button', { name: label, exact: true })).toHaveAttribute('aria-pressed', 'true');
+  }
+  await root.getByRole('button', { name: 'Стена', exact: true }).click();
+  const thickness = root.getByLabel('Толщина новой стены, мм'); await thickness.focus(); await thickness.press('h');
+  await expect(root.getByRole('button', { name: 'Стена', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await root.getByText('Горячие клавиши', { exact: true }).click();
+  await expect(root.getByRole('table', { name: 'Горячие клавиши редактора' })).toContainText('Контур комнаты');
+  await page.getByRole('button', { name: /Разметка/ }).first().click();
+  const full = page.locator('.editor svg').first(); await full.focus();
+  for (const [code, key, label] of [['KeyH', 'р', 'Рука'], ['KeyV', 'м', 'Выбор'], ['KeyW', 'ц', 'Стена'], ['KeyN', 'т', 'Помещение по точкам']]) {
+    await full.evaluate((el, event) => el.dispatchEvent(new KeyboardEvent('keydown', { ...event, bubbles: true })), { code, key });
+    await expect(page.getByRole('button', { name: label, exact: true })).toHaveAttribute('aria-pressed', 'true');
+  }
+});
+
 test('найденные, проверенные и ручные элементы видны сразу; исходник сравнивается без правки', async ({ page }) => {
   const p = await example(page), root = quick(page), svg = root.locator('svg');
   await expect(svg.locator('[data-recognition-overlay]')).toHaveCount(1);

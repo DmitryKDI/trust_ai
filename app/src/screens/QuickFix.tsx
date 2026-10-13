@@ -9,7 +9,8 @@ import { PlanView, planBounds, polyPath } from '../plan/PlanView';
 import { geometryHash, usesRoomWalls, detectRoomPolygon } from '../geometry/plan';
 import { dist, pointInPolygon, type BBox } from '../geometry/poly';
 import { addPlanWallChain, resizeOpening, snapPolylineClosure, WALL_KINDS } from '../editor/ops';
-import { ownsShortcut, historyShortcut } from '../editor/keyboard';
+import { ownsShortcut, historyShortcut, toolShortcut } from '../editor/keyboard';
+import { ToolShortcuts } from '../editor/ToolShortcuts';
 import { BatchProperties } from '../editor/BatchProperties';
 import { GeometryHandles, WallAngle } from '../editor/GeometryHandles';
 import { deleteSelection, selectElement, type ElementSelection } from '../editor/selection';
@@ -122,7 +123,7 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
   // Ctrl+Z / Ctrl+Y и Esc (сбросить начатое действие).
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      if (!ownsShortcut(rootRef.current, e)) return;
+      if (!ownsShortcut(rootRef.current, e, !!rootRef.current?.open)) return;
       if (e.code === 'Space' && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); spaceDown.current = true; setSpaceHeld(true); return; }
       if (pan.current) { if (e.key === 'Escape') { e.preventDefault(); stopPan(); } return; }
       if (originalOnly && img) { if (e.key === 'Escape') { e.preventDefault(); setOriginalOnly(false); } return; }
@@ -133,8 +134,8 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
       else if (e.key === 'Enter' && tool === 'roomPoly') { e.preventDefault(); finishRoom(); }
       else if ((e.key === 'Delete' || e.key === 'Backspace') && selection.length) { e.preventDefault(); removeSelected(); }
       else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
-        const next = TOOLS.find(t => t.key.toLowerCase() === e.key.toLowerCase());
-        if (next && !(next.id === 'add' && !img && !g.walls.length)) { e.preventDefault(); setTool(next.id); setDraft([]); setSel(null); setFirst(null); setMsg(null); }
+        const next = TOOLS.find(t => toolShortcut(e, t.key));
+        if (next && !(next.id === 'add' && !img && !g.walls.length)) { e.preventDefault(); setTool(next.id); setDraft([]); setSel(null); setFirst(null); setMsg(null); svgRef.current?.focus({ preventScroll: true }); }
       }
       if (e.key === 'Shift' && (tool === 'wall' || tool === 'roomPoly') && draft.length && lastPointer.current) setCursor(wallPoint(lastPointer.current, true));
     };
@@ -313,14 +314,15 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
       <p className="muted small">Проверьте план поверх оригинала. Ошибки распознавания правятся щелчком; Enter — завершить стены; Esc — отменить рисование; Shift + щелчок — выбрать несколько; Delete — удалить выбранные; Ctrl+Z — отменить. Рука (H), пробел или средняя кнопка мыши — двигать план.</p>
       <div className="toolbar" role="toolbar" aria-label="Быстрая правка">
         {TOOLS.map((t) => (
-          <button key={t.id} className={`tool ${tool === t.id ? 'on' : ''}`} aria-pressed={tool === t.id} title={`${t.hint} (${t.key})`} disabled={t.id === 'add' && !img && !g.walls.length}
-            onClick={() => { setTool(t.id); setDraft([]); setSel(null); setFirst(null); setMsg(null); }}>{t.label}</button>
+          <button key={t.id} className={`tool ${tool === t.id ? 'on' : ''}`} aria-label={t.label} aria-pressed={tool === t.id} title={`${t.hint} (${t.key})`} disabled={t.id === 'add' && !img && !g.walls.length}
+            onClick={() => { setTool(t.id); setDraft([]); setSel(null); setFirst(null); setMsg(null); }}>{t.label} <kbd aria-hidden="true">{t.key}</kbd></button>
         ))}
         <button className="tool" onClick={() => draft.length ? undoDraft() : undo()} disabled={!canUndo && !draft.length} title="Ctrl+Z">Отменить</button>
         <button className="tool" onClick={() => canRedoDraft ? redoDraft() : redo()} disabled={!canRedo && !canRedoDraft} title="Ctrl+Y">Повторить</button>
         <button className="tool" onClick={() => { const next = repairWallJunctions(g); if (next === g) setMsg('Близких разрывов в углах не найдено. Проверьте все стены и двери.'); else fix(() => next, 'Углы стен соединены. Ctrl+Z — отменить.'); }} title="Соединить близкие стыки до 120 мм, сохраняя оси стен и проёмы">Соединить углы стен</button>
         <button className="tool" onClick={() => setView(null)}>Вписать</button>
       </div>
+      <ToolShortcuts tools={TOOLS} />
       <div className="actions" style={{ marginTop: 10 }}>
         <label className="check-inline"><input type="checkbox" checked={showRecognition} disabled={originalOnly && !!img} onChange={e => setShowRecognition(e.target.checked)} />Подсветка найденных и ручных элементов</label>
         {img && <label className="check-inline"><input type="checkbox" checked={originalOnly} onChange={e => { stopPan(); setOriginalOnly(e.target.checked); setDraft([]); setFirst(null); setSel(null); }} />Только исходный план</label>}

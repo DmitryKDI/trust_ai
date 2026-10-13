@@ -21,6 +21,8 @@ import { detectRoomPolygon, geometryHash, openingWidth, roomArea } from '../geom
 import { add, dist, mul, norm, sub, type BBox } from '../geometry/poly';
 import { validate } from '../validate/validator';
 import { LearningPanel } from '../learning/Panel';
+import { toolShortcut } from '../editor/keyboard';
+import { ToolShortcuts } from '../editor/ToolShortcuts';
 import { ROOM_TYPES, roomName, simpleRing } from '../learning/model';
 
 type Tool = 'select' | 'pan' | 'calibrate' | 'wall' | 'pickWall' | 'door' | 'window' | 'pickDoor' | 'riser' | 'fixed' | 'wet' | 'room' | 'roomPoly';
@@ -258,7 +260,7 @@ export function MarkupScreen({ next }: { next: () => void }) {
     const down = (e: KeyboardEvent) => {
       const typing = isTextInput(e.target);
       if (typing || e.defaultPrevented) return;
-      if (e.key === ' ' && !typing) { spaceDown.current = true; e.preventDefault(); return; }
+      if (e.code === 'Space' && !e.ctrlKey && !e.metaKey && !e.altKey) { spaceDown.current = true; e.preventDefault(); return; }
       const history = historyShortcut(e);
       if (history) { e.preventDefault(); if (history === 'undo') { if (draft.length) undoDraft(); else undo(); } else { if (canRedoDraft) redoDraft(); else redo(); } return; }
       if (e.key === 'Shift' && lastPointer.current) setCursor(snap(lastPointer.current, true));
@@ -277,8 +279,8 @@ export function MarkupScreen({ next }: { next: () => void }) {
         return;
       }
       if (tool === 'wall' && e.key === 'Enter') { e.preventDefault(); finishWalls(); return; }
-      const tl = TOOLS.find((x) => x.key.toLowerCase() === e.key.toLowerCase());
-      if (tl && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); setTool(tl.id); setDraft([]); setSel(null); setLenInput(''); }
+      const tl = TOOLS.find((x) => toolShortcut(e, x.key));
+      if (tl && !(tl.id.startsWith('pick') && !index)) { e.preventDefault(); setTool(tl.id); setDraft([]); setSel(null); setLenInput(''); svgRef.current?.focus({ preventScroll: true }); }
     };
     const up = (e: KeyboardEvent) => { if (e.key === ' ') spaceDown.current = false; if (e.key === 'Shift' && lastPointer.current) setCursor(snap(lastPointer.current, false)); };
     window.addEventListener('keydown', down);
@@ -357,8 +359,8 @@ export function MarkupScreen({ next }: { next: () => void }) {
 
       <div className="toolbar" role="toolbar" aria-label="Инструменты разметки">
         {TOOLS.map((t) => (
-          <button key={t.id} className={`tool ${tool === t.id ? 'on' : ''} ${t.id.startsWith('pick') ? 'alt' : ''}`} onClick={() => { setTool(t.id); setDraft([]); setSel(null); setLenInput(''); }} title={`${t.hint} (${t.key})`} disabled={t.id.startsWith('pick') && !index}>
-            {t.label}
+          <button key={t.id} aria-label={t.label} aria-pressed={tool === t.id} className={`tool ${tool === t.id ? 'on' : ''} ${t.id.startsWith('pick') ? 'alt' : ''}`} onClick={() => { setTool(t.id); setDraft([]); setSel(null); setLenInput(''); }} title={`${t.hint} (${t.key})`} disabled={t.id.startsWith('pick') && !index}>
+            {t.label} <kbd aria-hidden="true">{t.key}</kbd>
           </button>
         ))}
         <button className="tool" onClick={() => draft.length ? undoDraft() : undo()} disabled={!canUndo && !draft.length} title="Ctrl+Z">Отменить</button>
@@ -367,6 +369,7 @@ export function MarkupScreen({ next }: { next: () => void }) {
         <button className="tool" onClick={() => setView(g.walls.length ? planBounds(g, 1500) : src.page ? { minX: 0, minY: 0, maxX: src.page.width * k, maxY: src.page.height * k } : null)}>Вписать</button>
       </div>
 
+      <ToolShortcuts tools={TOOLS.filter(t => !t.id.startsWith('pick') || !!index)} />
       <div className="editor">
         <div>
           <div className="canvas-wrap">
