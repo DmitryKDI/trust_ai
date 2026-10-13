@@ -6,13 +6,15 @@ import { uid } from '../model/defaults';
 import { useStore } from '../state/store';
 import { RecognitionLegend, RecognitionOverlay } from '../plan/RecognitionOverlay';
 import { PlanView, planBounds, polyPath } from '../plan/PlanView';
-import { geometryHash, usesRoomWalls } from '../geometry/plan';
+import { geometryHash, usesRoomWalls, detectRoomPolygon } from '../geometry/plan';
 import { dist, pointInPolygon, type BBox } from '../geometry/poly';
 import { addPlanWallChain, orthogonalPoint, resizeOpening, snapPolylineClosure, WALL_KINDS } from '../editor/ops';
-import { ownsShortcut } from '../editor/keyboard';
+import { ownsShortcut, historyShortcut } from '../editor/keyboard';
 import { BatchProperties } from '../editor/BatchProperties';
 import { GeometryHandles, WallAngle } from '../editor/GeometryHandles';
 import { deleteSelection, selectElement, type ElementSelection } from '../editor/selection';
+import { useDraftHistory } from '../editor/useDraftHistory';
+import { repairWallJunctions, snapWallAxis } from '../editor/wallJunctions';
 import { SizeInput } from '../editor/SizeInput';
 import { doorAt, mergeRooms, newRoomFromImage, roomFromCorners, roomFromPoints, splitRoom, type ImageData8 } from '../editor/quickfix';
 import { ROOM_TYPES, roomName } from '../learning/model';
@@ -48,7 +50,7 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
   const [doorLeaves, setDoorLeaves] = useState<1 | 2>(1);
   const [cursor, setCursor] = useState<Pt | null>(null);
   const lastPointer = useRef<Pt | null>(null);
-  const [draft, setDraft] = useState<Pt[]>([]);
+  const { points: draft, set: setDraft, undo: undoDraft, redo: redoDraft, canRedo: canRedoDraft } = useDraftHistory();
   const [first, setFirst] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [changed, setChanged] = useState(false);
@@ -123,19 +125,15 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
       if (e.code === 'Space' && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); spaceDown.current = true; setSpaceHeld(true); return; }
       if (pan.current) { if (e.key === 'Escape') { e.preventDefault(); stopPan(); } return; }
       if (originalOnly && img) { if (e.key === 'Escape') { e.preventDefault(); setOriginalOnly(false); } return; }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-        e.preventDefault();
-        if (!e.shiftKey && draft.length) setDraft(d => d.slice(0, -1));
-        else if (e.shiftKey) redo(); else undo();
-      }
-      else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
+      const history = historyShortcut(e);
+      if (history) { e.preventDefault(); if (history === 'undo') { if (draft.length) undoDraft(); else undo(); } else { if (canRedoDraft) redoDraft(); else redo(); } }
       else if (e.key === 'Escape') { e.preventDefault(); setDraft([]); setFirst(null); setSel(null); }
       else if (e.key === 'Enter' && tool === 'wall') { e.preventDefault(); finishWalls(); }
       else if (e.key === 'Enter' && tool === 'roomPoly') { e.preventDefault(); finishRoom(); }
       else if ((e.key === 'Delete' || e.key === 'Backspace') && selection.length) { e.preventDefault(); removeSelected(); }
       else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
         const next = TOOLS.find(t => t.key.toLowerCase() === e.key.toLowerCase());
-        if (next && !(next.id === 'add' && !img)) { e.preventDefault(); setTool(next.id); setDraft([]); setSel(null); setFirst(null); setMsg(null); }
+        if (next && !(next.id === 'add' && !img && !g.walls.length)) { e.preventDefault(); setTool(next.id); setDraft([]); setSel(null); setFirst(null); setMsg(null); }
       }
       if (e.key === 'Shift' && (tool === 'wall' || tool === 'roomPoly') && draft.length && lastPointer.current) setCursor(wallPoint(lastPointer.current, true));
     };
@@ -159,7 +157,7 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
   };
 
   const mmPerPx = () => { const svg = svgRef.current; const m = svg?.getScreenCTM(); return m ? 1 / Math.hypot(m.a, m.b) : 20; };
-  const wallPoint = (raw: Pt, shift: boolean) => snapPolylineClosure(raw, draft, 12 * mmPerPx()) ?? (shift && draft.length ? orthogonalPoint(draft[draft.length - 1], raw) : raw);
+  const wallPoint = (raw: Pt, shift: boolean) => snapPolylineClosure(raw, draft, 12 * mmPerPx()) ?? (tool === 'wall' ? snapWallAxis(raw, g.walls, 12 * mmPerPx(), draft.at(-1) ?? null, shift) : shift && draft.length ? orthogonalPoint(draft[draft.length - 1], raw) : raw);
   const finishWalls = (points = draft) => {
     if (points.length < 2) return;
     fix(x => addPlanWallChain(x, points, { thickness: wallT, kind: wallKind }), 'Стены добавлены. Пересоберите мебель. Ctrl+Z — отменить всю полилинию.');
@@ -211,13 +209,17 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
       return;
     }
     if (tool === 'add') {
-      if (!pixels.current) { setMsg('Картинка плана ещё загружается или недоступна — помещение можно обвести на шаге «Разметка».'); return; }
       if (roomAt(p)) { setMsg('Здесь уже есть помещение. Если оно неверное — выберите его и удалите, затем добавьте заново.'); return; }
-      const { data, mmPerPx } = pixels.current;
-      const poly = newRoomFromImage(data, { x: p.x / mmPerPx, y: p.y / mmPerPx }, mmPerPx, g.rooms);
-      if (!poly) { setMsg('Контур не найден по картинке. Воспользуйтесь «Комната по углам» — два щелчка в противоположные углы.'); return; }
+      const roomGeometry = repairWallJunctions(g);
+      const contour = detectRoomPolygon(roomGeometry, p);
+      let poly = contour ? roomFromPoints(contour, g.rooms) : null;
+      if (!poly && pixels.current) {
+        const { data, mmPerPx } = pixels.current;
+        poly = newRoomFromImage(data, { x: p.x / mmPerPx, y: p.y / mmPerPx }, mmPerPx, g.rooms);
+      }
+      if (!poly) { setMsg('Контур не замкнут. Нажмите «Соединить углы стен» или добавьте отсутствующие стены и проёмы.'); return; }
       const room: Room = { id: uid('r'), name: nameOf(newRoomType), type: newRoomType, typeSource: 'manual', polygon: poly, source: 'manual', verifiedByManager: true, sourcePage: g.sourcePage };
-      fix((x) => ({ ...x, rooms: [...x.rooms, room] }), 'Помещение добавлено — выберите его назначение ниже.');
+      fix((x) => ({ ...x, walls: roomGeometry.walls, rooms: [...x.rooms, room] }), 'Помещение добавлено по замкнутому контуру — выберите его назначение ниже.');
       setSel({ kind: 'room', id: room.id });
       setTool('select');
       return;
@@ -310,11 +312,12 @@ export function QuickFix({ onRebuild, busy }: { onRebuild: () => void; busy: boo
       <p className="muted small">Проверьте план поверх оригинала. Ошибки распознавания правятся щелчком; Enter — завершить стены; Esc — отменить рисование; Shift + щелчок — выбрать несколько; Delete — удалить выбранные; Ctrl+Z — отменить. Рука (H), пробел или средняя кнопка мыши — двигать план.</p>
       <div className="toolbar" role="toolbar" aria-label="Быстрая правка">
         {TOOLS.map((t) => (
-          <button key={t.id} className={`tool ${tool === t.id ? 'on' : ''}`} aria-pressed={tool === t.id} title={`${t.hint} (${t.key})`} disabled={t.id === 'add' && !img}
+          <button key={t.id} className={`tool ${tool === t.id ? 'on' : ''}`} aria-pressed={tool === t.id} title={`${t.hint} (${t.key})`} disabled={t.id === 'add' && !img && !g.walls.length}
             onClick={() => { setTool(t.id); setDraft([]); setSel(null); setFirst(null); setMsg(null); }}>{t.label}</button>
         ))}
-        <button className="tool" onClick={undo} disabled={!canUndo}>Отменить</button>
-        <button className="tool" onClick={redo} disabled={!canRedo}>Повторить</button>
+        <button className="tool" onClick={() => draft.length ? undoDraft() : undo()} disabled={!canUndo && !draft.length} title="Ctrl+Z">Отменить</button>
+        <button className="tool" onClick={() => canRedoDraft ? redoDraft() : redo()} disabled={!canRedo && !canRedoDraft} title="Ctrl+Y">Повторить</button>
+        <button className="tool" onClick={() => { const next = repairWallJunctions(g); if (next === g) setMsg('Близких разрывов в углах не найдено. Проверьте все стены и двери.'); else fix(() => next, 'Углы стен соединены. Ctrl+Z — отменить.'); }} title="Соединить близкие стыки до 120 мм, сохраняя оси стен и проёмы">Соединить углы стен</button>
         <button className="tool" onClick={() => setView(null)}>Вписать</button>
       </div>
       {(tool === 'add' || tool === 'rect' || tool === 'roomPoly') && <label className="field" style={{ maxWidth: 360 }}>Назначение новой зоны<select value={newRoomType} onChange={e => setNewRoomType(e.target.value as RoomType)}>{ROOM_TYPES.map(([t, label]) => <option key={t} value={t}>{label}</option>)}</select></label>}

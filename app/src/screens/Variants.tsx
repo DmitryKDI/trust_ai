@@ -6,7 +6,7 @@ import { furnitureSnapContext, resizeFurnitureAtHandle, snapFurnitureMove, snapF
 import { planningInputsHash, requirementStatus, variantCurrent } from '../brief/requirements';
 import { furnitureMeasurements } from '../editor/measurements';
 import { MeasurementGuides } from '../editor/MeasurementGuides';
-import { ownsShortcut } from '../editor/keyboard';
+import { ownsShortcut, historyShortcut } from '../editor/keyboard';
 import { SizeInput } from '../editor/SizeInput';
 import { selectElement, deleteSelection, type ElementSelection, type PlanSelection } from '../editor/selection';
 import { BatchProperties } from '../editor/BatchProperties';
@@ -297,8 +297,8 @@ function VariantDetail({ v, busy, onRebuildRoom }: { v: Variant; busy: boolean; 
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
       if (!ownsShortcut(rootRef.current, e)) return;
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) redoItems(); else undoItems(); return; }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redoItems(); return; }
+      const history = historyShortcut(e);
+      if (history) { e.preventDefault(); if (history === 'redo') redoItems(); else undoItems(); return; }
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.key.toLowerCase() === 'r' && selection.length) rotate();
       if ((e.key === 'Delete' || e.key === 'Backspace') && planSelection.length) { e.preventDefault(); remove(); }

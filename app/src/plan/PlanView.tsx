@@ -76,7 +76,7 @@ export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanVi
   // План без векторных стен (скан): аккуратные стены — ровная полоса вокруг найденных помещений.
   const band = useMemo(() => (!editor && usesRoomWalls(g) ? roomWallBand(g, 200) : null), [g, editor]);
   const displayedWalls = useMemo(() => union(band ?? [], walls), [band, walls]);
-  const typedWalls = useMemo(() => g.walls.map(w => ({ wall: w, geom: wallsGeom({ ...g, walls: [w] }) })), [g]);
+  const typedWalls = useMemo(() => g.walls.map(w => ({ wall: w, geom: wallsGeom({ ...g, walls: [w] }, true, g.walls) })), [g]);
 
   return (
     <svg
@@ -115,8 +115,8 @@ export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanVi
       {/* Стены */}
       {editor
         ? g.walls.map((w) => (
-            <path key={w.id} data-wall-id={w.id} data-wall-kind={w.kind} data-selected={selected.has(w.id)} d={polyPath(wallPolygon(w))} fill={w.kind === 'unknown' ? `url(#${unknownPatternId})` : WALL_COLORS[w.kind]} fillOpacity={underlay ? 0.55 : 0.9}
-              stroke={selected.has(w.id) ? '#d2691e' : w.verifiedByManager ? '#2f3739' : '#c9a36b'} strokeWidth={selected.has(w.id) ? 2.5 : 1}
+            <path key={w.id} data-wall-id={w.id} data-wall-kind={w.kind} data-selected={selected.has(w.id)} d={polyPath(wallPolygon(w, g.walls))} fill={w.kind === 'unknown' ? `url(#${unknownPatternId})` : WALL_COLORS[w.kind]} fillOpacity={underlay ? 0.55 : 0.9}
+              stroke={selected.has(w.id) ? '#d2691e' : w.verifiedByManager ? 'none' : '#c9a36b'} strokeWidth={selected.has(w.id) ? 2.5 : 1}
               strokeDasharray={w.verifiedByManager ? undefined : '6 4'} vectorEffect="non-scaling-stroke" onClick={e => p.onElementClick?.('wall', w.id, e)} />
           ))
         : !orig && <path data-layer="wall-base" data-room-walls={!!band} d={geomPath(displayedWalls)} fill={pal.wall} fillRule="evenodd" />}
@@ -124,6 +124,7 @@ export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanVi
         data-wall-id={w.id} data-wall-kind={w.kind} data-selected={selected.has(w.id)} d={geomPath(geom)} fill={orig && w.source !== 'manual' ? 'transparent' : w.kind === 'unknown' ? `url(#${unknownPatternId})` : w.kind === 'partition' ? pal.text : pal.wall}
         fillRule="evenodd" stroke={selected.has(w.id) ? '#d2691e' : pal.wall} strokeWidth={selected.has(w.id) ? 3 : 0.6} vectorEffect="non-scaling-stroke" onClick={e => p.onElementClick?.('wall', w.id, e)} />)}
 
+      {editor && <path data-layer="wall-outline" d={geomPath(walls)} fill="none" stroke="#2f3739" strokeWidth={1} vectorEffect="non-scaling-stroke" pointerEvents="none" />}
       {/* Проёмы */}
       {!orig && g.openings.map((o) => {
         const sel = selected.has(o.id);

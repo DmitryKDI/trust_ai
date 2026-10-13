@@ -8,10 +8,12 @@ import { useStore } from '../state/store';
 import { useSourcePage } from '../state/useSource';
 import { PlanView, planBounds, polyPath } from '../plan/PlanView';
 import { addPlanWall, addPlanWallChain, WALL_KINDS, calibrate, doorFromArc, isWallFill, openingFromClicks, resizeOpening, scaleOf, snapPoint, snapPolylineClosure, wallFromFill, type SnapKind } from '../editor/ops';
-import { isTextInput } from '../editor/keyboard';
+import { isTextInput, historyShortcut } from '../editor/keyboard';
 import { BatchProperties } from '../editor/BatchProperties';
 import { GeometryHandles, WallAngle } from '../editor/GeometryHandles';
 import { deleteSelection, selectElement, type ElementSelection } from '../editor/selection';
+import { useDraftHistory } from '../editor/useDraftHistory';
+import { repairWallJunctions, snapWallAxis } from '../editor/wallJunctions';
 import { SizeInput } from '../editor/SizeInput';
 import { SnapIndex } from '../pdf/vectors';
 import { detectRoomPolygon, geometryHash, openingWidth, roomArea } from '../geometry/plan';
@@ -51,7 +53,7 @@ export function MarkupScreen({ next }: { next: () => void }) {
 
   const [tool, setTool] = useState<Tool>('select');
   const [newRoomType, setNewRoomType] = useState<RoomType>('other');
-  const [draft, setDraft] = useState<Pt[]>([]);
+  const { points: draft, set: setDraft, undo: undoDraft, redo: redoDraft, canRedo: canRedoDraft } = useDraftHistory();
   const [cursor, setCursor] = useState<{ p: Pt; kind: SnapKind } | null>(null);
   const [selection, setSelection] = useState<ElementSelection[]>([]);
   const sel: Sel = selection.length === 1 ? selection[0] : null;
@@ -102,6 +104,7 @@ export function MarkupScreen({ next }: { next: () => void }) {
     const closed = (tool === 'wall' || tool === 'roomPoly') ? snapPolylineClosure(raw, draft, 12 * mmPerPx()) : null;
     if (closed) return { p: closed, kind: 'closure' as const };
     const anchor = draft.length ? draft[draft.length - 1] : null;
+    if (tool === 'wall') return { p: snapWallAxis(raw, g.walls, 12 * mmPerPx(), anchor, shift || ortho), kind: 'geometry' as SnapKind };
     const linear = ['wall', 'door', 'window', 'calibrate', 'roomPoly'].includes(tool);
     return snapPoint(raw, { g, k, index, radiusMm: 12 * mmPerPx(), anchor, ortho: ortho && linear && (tool !== 'roomPoly' || draft.length >= 2), forceOrtho: shift && linear, vectors: vecSnap });
   };
@@ -181,11 +184,12 @@ export function MarkupScreen({ next }: { next: () => void }) {
         } else setDraft([s]);
         break;
       case 'room': {
-        const poly = detectRoomPolygon(g, raw);
-        if (!poly) { setMsg('Контур не найден: точка вне квартиры или помещение не замкнуто стенами и проёмами.'); break; }
+        const roomGeometry = repairWallJunctions(g);
+        const poly = detectRoomPolygon(roomGeometry, raw);
+        if (!poly) { setMsg('Контур не замкнут. Нажмите «Соединить углы стен» и проверьте отсутствующие стены и проёмы.'); break; }
         if (g.rooms.some((r) => Math.abs(roomArea(r.polygon) - roomArea(poly)) < 1e4 && dist(r.polygon[0], poly[0]) < 10)) { setMsg('Это помещение уже отмечено.'); break; }
         const room: Room = { id: uid('r'), name: roomName(newRoomType), type: newRoomType, typeSource: 'manual', polygon: poly, source: 'manual', verifiedByManager: true, sourcePage: page };
-        setG((x) => ({ ...x, rooms: [...x.rooms, room] }));
+        setG((x) => ({ ...x, walls: roomGeometry.walls, rooms: [...x.rooms, room] }));
         setSel({ kind: 'room', id: room.id });
         break;
       }
@@ -251,8 +255,8 @@ export function MarkupScreen({ next }: { next: () => void }) {
       const typing = isTextInput(e.target);
       if (typing || e.defaultPrevented) return;
       if (e.key === ' ' && !typing) { spaceDown.current = true; e.preventDefault(); return; }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); if (!e.shiftKey && draft.length) setDraft(d => d.slice(0, -1)); else if (e.shiftKey) redo(); else undo(); return; }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
+      const history = historyShortcut(e);
+      if (history) { e.preventDefault(); if (history === 'undo') { if (draft.length) undoDraft(); else undo(); } else { if (canRedoDraft) redoDraft(); else redo(); } return; }
       if (e.key === 'Shift' && lastPointer.current) setCursor(snap(lastPointer.current, true));
       if (e.key === 'Escape') { e.preventDefault(); setDraft([]); setLenInput(''); setSel(null); return; }
       if ((e.key === 'Delete' || e.key === 'Backspace') && selection.length) { e.preventDefault(); removeSelected(); return; }
@@ -298,7 +302,7 @@ export function MarkupScreen({ next }: { next: () => void }) {
       { ok: g.walls.length > 0 || g.rooms.length > 0, text: g.walls.length ? `Стены: ${g.walls.length}` : 'Стены — по изображению плана' },
       { ok: g.openings.some((o) => o.isEntrance), text: g.openings.some((o) => o.isEntrance) ? 'Входная дверь отмечена' : 'Отметьте входную дверь (выберите дверь → «Входная»)' },
       { ok: g.rooms.length > 0, text: `Помещения: ${g.rooms.length}${g.rooms.some((r) => r.type === 'other') ? ' (есть без типа)' : ''}` },
-      { ok: !!v && v.unreachableRooms.length === 0, text: v ? (v.unreachableRooms.length ? `Недостижимы от входа: ${v.unreachableRooms.map((id) => g.rooms.find((r) => r.id === id)?.name).join(', ')}` : 'Все помещения достижимы от входа') : 'Проходимость — после разметки помещений' },
+      { ok: !!v && v.unreachableRooms.length === 0, text: v ? (v.unreachableRooms.length ? `Нет прохода от входной двери в: ${v.unreachableRooms.map((id) => g.rooms.find((r) => r.id === id)?.name).join(', ')}. Проверьте дверной проём и свободный проход не менее ${rules.passageMin} мм.` : 'Все помещения достижимы от входа') : 'Проходимость — после разметки помещений' },
       { ok: true, text: g.fixed.some((f) => f.kind === 'riser') ? `Стояки: ${g.fixed.filter((f) => f.kind === 'riser').length}` : 'Стояки не отмечены — будет помечено как неизвестное' },
     ];
     return { list, unverified, blocking: list.slice(0, 5).some((c) => !c.ok) };
@@ -353,8 +357,9 @@ export function MarkupScreen({ next }: { next: () => void }) {
             {t.label}
           </button>
         ))}
-        <button className="tool" onClick={undo} disabled={!canUndo} title="Ctrl+Z">Отменить</button>
-        <button className="tool" onClick={redo} disabled={!canRedo} title="Ctrl+Y">Повторить</button>
+        <button className="tool" onClick={() => draft.length ? undoDraft() : undo()} disabled={!canUndo && !draft.length} title="Ctrl+Z">Отменить</button>
+        <button className="tool" onClick={() => canRedoDraft ? redoDraft() : redo()} disabled={!canRedo && !canRedoDraft} title="Ctrl+Y">Повторить</button>
+        <button className="tool" onClick={() => { const next = repairWallJunctions(g); if (next === g) setMsg('Близких разрывов в углах не найдено. Проверьте, что отмечены все стены и двери.'); else { setG(() => next); setMsg('Углы стен соединены. Ctrl+Z — отменить.'); } }} title="Соединить близкие стыки до 120 мм, сохраняя оси стен и проёмы">Соединить углы стен</button>
         <button className="tool" onClick={() => setView(g.walls.length ? planBounds(g, 1500) : src.page ? { minX: 0, minY: 0, maxX: src.page.width * k, maxY: src.page.height * k } : null)}>Вписать</button>
       </div>
 

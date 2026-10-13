@@ -6,8 +6,15 @@ import {
   segmentRect, simplifyRing, sub, toGeom, union, type Geom,
 } from './poly';
 
-export function wallPolygon(w: Wall): Pt[] {
-  return segmentRect(w.a, w.b, w.thickness);
+export function wallPolygon(w: Wall, neighbors: Wall[] = []): Pt[] {
+  const direction = norm(sub(w.b, w.a));
+  const extension = (p: Pt) => neighbors.reduce((length, other) => {
+    if (other.id === w.id || ![other.a, other.b].some(q => dist(p, q) < 1)) return length;
+    const d = norm(sub(other.b, other.a)), sine = Math.abs(direction.x * d.y - direction.y * d.x);
+    // Fill perpendicular corners through the outer wall face; free ends stay flat.
+    return sine > .95 ? Math.max(length, other.thickness / (2 * sine)) : length;
+  }, 0);
+  return segmentRect(add(w.a, mul(direction, -extension(w.a))), add(w.b, mul(direction, extension(w.b))), w.thickness);
 }
 
 export function usesRoomWalls(g: PlanGeometry): boolean {
@@ -57,8 +64,8 @@ export function doorSwingPolygons(o: Opening, segments = 12): Pt[][] {
 }
 
 /** Полигоны стен с прорезанными проёмами (MultiPolygon). */
-export function wallsGeom(g: PlanGeometry, cutOpenings = true): Geom {
-  const walls = union(...g.walls.map((w) => toGeom(wallPolygon(w))));
+export function wallsGeom(g: PlanGeometry, cutOpenings = true, neighbors = g.walls): Geom {
+  const walls = union(...g.walls.map((w) => toGeom(wallPolygon(w, neighbors))));
   if (!cutOpenings || !g.openings.length) return walls;
   return difference(walls, union(...g.openings.map((o) => toGeom(openingRect(o)))));
 }
@@ -66,7 +73,7 @@ export function wallsGeom(g: PlanGeometry, cutOpenings = true): Geom {
 /** Стены + все проёмы как сплошная граница (для поиска контуров помещений). */
 export function barrierGeom(g: PlanGeometry): Geom {
   return union(
-    ...g.walls.map((w) => toGeom(wallPolygon(w))),
+    ...g.walls.map((w) => toGeom(wallPolygon(w, g.walls))),
     ...g.openings.map((o) => toGeom(segmentRect(o.a, o.b, o.thickness))),
   );
 }

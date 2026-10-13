@@ -4,12 +4,13 @@ import { uid } from '../model/defaults';
 import { add, dist, dot, leftNormal, mul, norm, projectOnSegment, sub } from '../geometry/poly';
 import { usesRoomWalls, wallPolygon } from '../geometry/plan';
 import type { Arc, FillRect, SnapIndex } from '../pdf/vectors';
+import { repairWallJunctions } from './wallJunctions';
 
 export const WALL_KINDS = [['unknown', 'Тип неизвестен'], ['bearing', 'Несущая'], ['partition', 'Перегородка']] as const;
 
 export function addPlanWall(g: PlanGeometry, wall: Wall): PlanGeometry {
   if (![wall.a.x, wall.a.y, wall.b.x, wall.b.y, wall.thickness].every(Number.isFinite) || wall.thickness < 30 || dist(wall.a, wall.b) < 50) throw new Error('Нужны две разные точки стены и толщина от 30 мм.');
-  return { ...g, ...(usesRoomWalls(g) ? { wallMode: 'rooms' as const } : {}), walls: [...g.walls, wall] };
+  return repairWallJunctions({ ...g, ...(usesRoomWalls(g) ? { wallMode: 'rooms' as const } : {}), walls: [...g.walls, wall] }, 120, new Set([wall.id]));
 }
 
 /** Все сегменты полилинии добавляются одним действием истории. */

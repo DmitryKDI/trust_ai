@@ -1,15 +1,16 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { twoRoom, brief } from '../tests/fixtures/synthetic';
+import { twoRoom, brief, wall } from '../tests/fixtures/synthetic';
+import type { PlanGeometry } from '../src/model/types';
 import { newProject } from '../src/model/defaults';
 import { geometryHash } from '../src/geometry/plan';
 
-async function importExample(page: Page) {
+async function importExample(page: Page, geometry: PlanGeometry = twoRoom()) {
   const project = newProject({ alias: 'Горячие клавиши', city: 'Москва', manager: '', date: '2026-10-05' });
   project.brief = brief;
-  project.geometry = twoRoom();
+  project.geometry = geometry;
   project.geometry.approvedHash = geometryHash(project.geometry);
   project.variants = [{ id: 'shortcut-variant', scenario: 'space', title: 'Пример', idea: 'Проверка клавиш', geometryHash: geometryHash(project.geometry),
-    items: [{ id: 'shortcut-tub', type: 'bathtub', x: 2500, y: 2000, rot: 0, w: 1700, d: 700, roomId: project.geometry.rooms[0].id, ruleId: null, movedByManager: false }],
+    items: [{ id: 'shortcut-tub', type: 'bathtub', x: 2500, y: 2000, rot: 0, w: 1700, d: 700, roomId: project.geometry.rooms[0]?.id ?? null, ruleId: null, movedByManager: false }],
     benefits: [], compromises: [], assumptions: [], changes: [], issues: [], metrics: {}, approved: false, editedByManager: false }];
   await page.goto('/');
   await page.locator('input[type=file]').setInputFiles({ name: 'shortcuts.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ format: 'trust-planner-project', version: 1, project, files: {} })) });
@@ -93,6 +94,10 @@ test('полилинии, Enter, Esc, история и Delete работают 
   await expect(full.locator('[data-wall-id]')).toHaveCount(8);
   await page.keyboard.press('Control+z');
   await expect(full.locator('[data-wall-draft]')).toHaveAttribute('d', /M1500 1500L3200 1500L3200 3000/);
+  await full.evaluate(el => el.dispatchEvent(new KeyboardEvent('keydown', { key: 'н', code: 'KeyY', ctrlKey: true, bubbles: true })));
+  await expect(full.locator('[data-wall-draft]')).toHaveAttribute('d', /M1500 1500L3200 1500L3200 3000L1500 3000/);
+  await full.evaluate(el => el.dispatchEvent(new KeyboardEvent('keydown', { key: 'я', code: 'KeyZ', ctrlKey: true, bubbles: true })));
+  await expect(full.locator('[data-wall-draft]')).toHaveAttribute('d', /M1500 1500L3200 1500L3200 3000/);
   await page.keyboard.press('Enter');
   await expect(full.locator('[data-wall-id]')).toHaveCount(10);
   await page.keyboard.press('Control+z'); await expect(full.locator('[data-wall-id]')).toHaveCount(8);
@@ -101,4 +106,28 @@ test('полилинии, Enter, Esc, история и Delete работают 
   await expect(full.locator('[data-wall-id]')).toHaveCount(9);
   await page.keyboard.press('w'); await point(page, full, 1500, 1500); await point(page, full, 2200, 1900);
   await page.keyboard.press('Escape'); await expect(full.locator('[data-wall-id]')).toHaveCount(9);
+});
+
+test('автокомната соединяет близкий угол без исходного скана; отмена и повтор возвращают результат', async ({ page }, info) => {
+  test.skip(info.project.name !== 'desktop');
+  const g = twoRoom();
+  g.rooms = []; g.openings = []; g.fixed = [];
+  g.walls = [
+    wall({ x: 0, y: 0 }, { x: 2920, y: 0 }, 40),
+    wall({ x: 3000, y: 80 }, { x: 3000, y: 3000 }, 40),
+    wall({ x: 3000, y: 3000 }, { x: 0, y: 3000 }, 40),
+    wall({ x: 0, y: 3000 }, { x: 0, y: 0 }, 40),
+  ];
+  await importExample(page, g);
+  const quick = page.locator('details').filter({ has: page.locator('summary', { hasText: /^Быстрая правка/ }) });
+  const svg = quick.locator('svg');
+  await expect(quick.getByRole('button', { name: 'Соединить углы стен', exact: true })).toBeVisible();
+  const add = quick.getByRole('button', { name: 'Добавить комнату', exact: true });
+  await expect(add).toBeEnabled(); await add.click();
+  await point(page, svg, 1500, 1500);
+  await expect(svg.locator('[data-room-id]')).toHaveCount(1);
+  await page.keyboard.press('Control+z');
+  await expect(svg.locator('[data-room-id]')).toHaveCount(0);
+  await page.keyboard.press('Control+y');
+  await expect(svg.locator('[data-room-id]')).toHaveCount(1);
 });
