@@ -34,8 +34,8 @@ jobs:
       - name: Desktop editing and persistence through the actual UI
         run: npx playwright test e2e/editor-shortcuts.spec.ts e2e/manual-dimensions.spec.ts e2e/flow.spec.ts e2e/scene.spec.ts e2e/editor-interactions.spec.ts e2e/security.spec.ts e2e/planning-requirements.spec.ts e2e/quick-plan-navigation.spec.ts e2e/client-proposal.spec.ts --project=desktop --reporter=line --workers=1
       - uses: actions/upload-artifact@v4
-        if: failure()
+        if: always()
         with:
-          name: manual-editor-failure
+          name: manual-editor-check
           path: app/test-results
 

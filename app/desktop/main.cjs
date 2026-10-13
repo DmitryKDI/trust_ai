@@ -98,7 +98,7 @@ else {
       try {
         const result = await dialog.showSaveDialog(win, { title: 'Сохранить КП в PDF', defaultPath: path.join(app.getPath('documents'), pdfName(name)), filters: [{ name: 'PDF', extensions: ['pdf'] }] });
         if (result.canceled || !result.filePath) return false;
-        const data = await win.webContents.printToPDF({ printBackground: true, preferCSSPageSize: true, pageSize: 'A4' });
+        const data = await win.webContents.printToPDF({ printBackground: true, preferCSSPageSize: true, pageSize: 'A4', landscape: true });
         await fs.writeFile(result.filePath, data);
         return true;
       } catch { throw new Error('Не удалось записать PDF. Выберите другую папку и повторите.'); }

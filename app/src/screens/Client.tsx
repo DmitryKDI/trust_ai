@@ -21,6 +21,7 @@ export function ClientScreen({ back }: { back: () => void }) {
   const { project, rules } = useStore();
   const [exporting, setExporting] = useState(false);
   const [pdfMessage, setPdfMessage] = useState('');
+  const [coverImage, setCoverImage] = useState('');
   const settings = useMemo(() => ({ ...sceneSettings(project.concept.scene3d), fullWalls: false, showCeiling: false }), [project.concept.scene3d]);
   const v = project.variants.find((x) => x.id === project.selectedVariantId && x.approved && isReady(x) && variantCurrent(x, project));
   if (!v)
@@ -46,7 +47,7 @@ export function ClientScreen({ back }: { back: () => void }) {
       <div className="actions no-print" style={{ marginTop: 0, marginBottom: 16 }}>
         <button className="btn secondary" onClick={back}>Изменить вариант</button>
         <button className="btn ghost" disabled={exporting} onClick={async () => {
-          if (document.querySelectorAll('[data-client-3d]').length !== variants.length) { alert(`Дождитесь подготовки 3D-визуализаций.${isDesktop ? ' Если 3D недоступно, перезапустите программу.' : ' Если 3D недоступно, включите аппаратное ускорение браузера.'}`); return; }
+          if (document.querySelectorAll('[data-client-3d]').length !== variants.length || !coverImage) { alert(`Дождитесь подготовки 3D-визуализаций.${isDesktop ? ' Если 3D недоступно, перезапустите программу.' : ' Если 3D недоступно, включите аппаратное ускорение браузера.'}`); return; }
           if (!desktop) { window.print(); return; }
           setExporting(true); setPdfMessage('');
           try { if (await desktop.savePdf(project.alias)) setPdfMessage('PDF сохранён.'); }
@@ -58,13 +59,14 @@ export function ClientScreen({ back }: { back: () => void }) {
       <article className="client proposal">
         <section className="proposal-cover" aria-label="Титульный слайд коммерческого предложения">
           <div className="proposal-brand"><span className="proposal-mark" aria-hidden="true">Т</span><div>ТРАСТ РЕМОНТ<small>Ремонт квартир · Москва и область</small></div></div>
-          <div className="proposal-cover-copy">
+          <div className="proposal-cover-main"><div className="proposal-cover-copy">
             <div className="eyebrow">Персональное предложение · {project.alias}</div>
             <h1>Квартира, в которой<br />удобно жить.</h1>
             <p className="proposal-cover-lead">Продуманная планировка, ваш стиль и понятный ориентир бюджета — до начала ремонта.</p>
             <div className="proposal-cover-line" />
             <p>Сначала выбираем решение вместе.<br />Затем уточняем смету и план работ.</p>
           </div>
+          <div className="proposal-cover-visual">{coverImage && <img data-cover-3d="true" src={coverImage} alt={`Объёмный вид квартиры: ${v.title}`} />}<span>Первый взгляд на вашу будущую квартиру</span></div></div>
           <div className="proposal-promises">
             <div><b>Под ваш образ жизни</b><span>Сравните решения для своей квартиры</span></div>
             <div><b>Прозрачно по бюджету</b><span>Стоимость работ и состав расчёта</span></div>
@@ -98,7 +100,7 @@ export function ClientScreen({ back }: { back: () => void }) {
             <div className="client-variants">{variants.map((variant, i) => <article className="client-variant proposal-page" key={variant.id}>
               <div className="eyebrow">Сравните решения · Вариант {i + 1}{variant.id === v.id ? ' · рекомендуемый' : ''}</div><h2>{variant.title}</h2><p className="small">{variant.idea}.</p>
               <div className="proposal-variant-views">
-              <SceneImage geometry={g} items={variant.items} settings={settings} catalog={c.materialCatalog ?? EMPTY_CATALOG} palette={c.palette} title={variant.title} />
+              <SceneImage geometry={g} items={variant.items} settings={settings} catalog={c.materialCatalog ?? EMPTY_CATALOG} palette={c.palette} title={variant.title} onReady={variant.id === v.id ? setCoverImage : undefined} />
               <PlanView g={g} items={variant.items} mode="client" viewBox={vb} wallImage={project.planImage} planStyle={project.planStyle} ariaLabel={`План варианта ${i + 1}: ${variant.title}`} />
               </div>
               <ul className="list">{variant.benefits.slice(0, 3).map(b => <li key={b}>{b}</li>)}</ul>
@@ -113,6 +115,8 @@ export function ClientScreen({ back }: { back: () => void }) {
               {c.palette.map((s) => <div className="swatch" key={s.name}><div className="chip" style={{ background: s.hex }} /><div className="small" style={{ marginTop: 6 }}>{s.name}</div></div>)}
             </div>
             <ul className="list">{c.materials.filter(Boolean).map((m) => <li key={m}>{m}</li>)}</ul>
+          </section>
+          {c.references.length > 0 && <section className="proposal-page proposal-references"><div className="eyebrow">Материалы и настроение</div><h2>Образы вашего интерьера</h2>
             <div className="refs" style={{ marginTop: 14 }}>
               {c.references.slice(0, 4).map((r) => (
                 <figure className="ref" key={r.id} style={{ margin: 0 }}>
@@ -122,7 +126,7 @@ export function ClientScreen({ back }: { back: () => void }) {
                 </figure>
               ))}
             </div>
-          </section>
+          </section>}
           <section className="proposal-page proposal-budget">
             <div className="eyebrow">Бюджет и следующий шаг</div>
             <h2>От идеи — к понятному плану ремонта</h2>

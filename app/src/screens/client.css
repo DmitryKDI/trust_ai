@@ -2,13 +2,18 @@
 .proposal { --proposal-chocolate: #715547; --proposal-cream: #f6eee4; }
 .proposal h1, .proposal h2 { font-family: Prata, Georgia, serif; font-weight: 400; }
 .proposal h2 { font-size: clamp(26px, 3vw, 40px); line-height: 1.2; }
-.proposal-page { padding: 36px; }
-.proposal-cover { position: relative; padding: 42px; min-height: 660px; display: flex; flex-direction: column; gap: 36px; background: var(--proposal-chocolate); color: var(--proposal-cream); isolation: isolate; }
+.proposal-page { position: relative; padding: 36px; }
+.proposal-cover { position: relative; padding: 42px; min-height: 560px; display: flex; flex-direction: column; gap: 36px; background: var(--proposal-chocolate); color: var(--proposal-cream); isolation: isolate; }
 .proposal-cover::before { content: ''; position: absolute; z-index: -1; right: -90px; top: 70px; width: 330px; height: 460px; border: 1px solid #b79a8150; border-radius: 180px 180px 0 0; transform: rotate(12deg); }
 .proposal-brand { display: flex; gap: 14px; align-items: center; font-weight: 800; font-size: 18px; letter-spacing: .08em; }
 .proposal-brand small { display: block; font-size: 11px; font-weight: 500; letter-spacing: .03em; margin-top: 6px; }
 .proposal-mark { width: 48px; height: 48px; border: 1px solid #c9af97; display: grid; place-items: center; font: 28px Georgia, serif; flex: none; }
-.proposal-cover-copy { margin: auto 0; max-width: 650px; }
+.proposal-cover-main { display: grid; grid-template-columns: 1.05fr .95fr; align-items: center; gap: 28px; margin: auto 0; }
+.proposal-cover-copy { min-width: 0; }
+.proposal-cover-visual { background: #f4eee6; color: #715547; border: 1px solid #b99c82; padding: 12px; border-radius: 12px; }
+.proposal-cover-visual img { width: 100%; aspect-ratio: 1.6; object-fit: contain; display: block; }
+.proposal-cover-visual span { display: block; text-align: center; font-size: 11px; padding: 12px 0 2px; }
+.proposal-cover-main > * { min-width: 0; }
 .proposal-cover .eyebrow { color: #e5ceba; overflow-wrap: anywhere; }
 .proposal-cover h1 { font-size: clamp(36px, 5vw, 64px); line-height: 1.13; margin: 18px 0 22px; }
 .proposal-cover p { line-height: 1.65; }
@@ -29,7 +34,7 @@
 .proposal .clientbody > .notice { margin: 20px; }
 .proposal .client-variants { grid-template-columns: 1fr; gap: 0; }
 .proposal .client-variant { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; }
-.proposal-variant-views { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: center; gap: 22px; margin: 20px 0; }
+.proposal-variant-views { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, .8fr); align-items: center; gap: 22px; margin: 20px 0; }
 .proposal-variant-views > svg, .proposal .client-scene, .proposal .client-scene img { height: 330px; }
 .proposal .client-scene { margin: 0; }
 .proposal .client-scene img { border-radius: 10px; }
@@ -44,42 +49,57 @@
   .proposal-page, .proposal-cover { padding: 22px; }
   .proposal-cover { min-height: 740px; gap: 28px; }
   .proposal-brand { font-size: 15px; }
-  .proposal-promises, .proposal-variant-views { grid-template-columns: 1fr; }
+  .proposal-promises, .proposal-variant-views, .proposal-cover-main { grid-template-columns: 1fr; }
   .proposal-promises { gap: 16px; }
   .proposal-cover::before { display: none; }
   .proposal-variant-views > svg, .proposal .client-scene, .proposal .client-scene img { height: 280px; }
   .proposal .refs { grid-template-columns: 1fr; }
 }
 @media print {
+  @page { size: A4 landscape; margin: 10mm; }
   .view { padding-top: 0 !important; }
-  .proposal { overflow: visible; }
-  .proposal-cover, .proposal-page { padding: 8mm; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-  .proposal-cover { min-height: 265mm; gap: 10mm; break-after: page; overflow: hidden; }
-  .proposal-cover h1 { font-size: 38pt; }
-  .proposal-cover-lead { font-size: 14pt; }
+  .proposal { overflow: visible; counter-reset: proposal-sheet; color: #32241f; background: #fffdf9; }
+  .proposal-cover, .proposal-page { padding: 7mm 8mm 12mm; print-color-adjust: exact; -webkit-print-color-adjust: exact; counter-increment: proposal-sheet; }
+  .proposal-cover { min-height: 188mm; gap: 6mm; break-after: page; overflow: hidden; padding-bottom: 7mm; }
+  .proposal-cover-main { grid-template-columns: 1.05fr .95fr; gap: 8mm; margin: auto 0; }
+  .proposal-cover h1 { font-size: 30pt; margin: 4mm 0; }
+  .proposal-cover-lead { font-size: 12pt; }
+  .proposal-cover p { margin: 3mm 0; font-size: 10pt; }
+  .proposal-cover-line { margin: 5mm 0; }
   .proposal-brand { font-size: 15pt; }
-  .proposal-promises { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5mm; }
-  .proposal-page { break-before: page; break-inside: auto; }
+  .proposal-cover-visual { padding: 3mm; }
+  .proposal-cover-visual img { height: 80mm; aspect-ratio: auto; }
+  .proposal-cover-visual span { padding: 3mm 0 1mm; font-size: 8pt; }
+  .proposal-promises { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6mm; padding-top: 5mm; }
+  .proposal-promises b { font-size: 9pt; }
+  .proposal-promises span { font-size: 8pt; }
+  .proposal-page { min-height: 188mm; break-before: page; break-inside: auto; }
+  .proposal-page::after { content: 'ТРАСТ РЕМОНТ · Концепция для обсуждения · ' counter(proposal-sheet); position: absolute; bottom: 4mm; right: 8mm; color: #9a7a65; font-size: 8pt; letter-spacing: .04em; }
   .proposal .clientbody > section { break-inside: auto; }
-  .proposal h2 { font-size: 24pt; }
-  .proposal .clienthero { display: block; }
-  .proposal .clienthero .planbox { margin: 6mm 0; padding: 3mm; }
-  .proposal .clienthero .planbox svg { height: 120mm; }
-  .proposal .benefits { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .proposal h2 { font-size: 24pt; margin: 3mm 0; }
+  .proposal .clienthero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6mm; align-items: center; }
+  .proposal .clienthero .planbox { margin: 0; padding: 3mm; }
+  .proposal .clienthero .planbox svg { height: 100mm; }
+  .proposal .clienthero p { font-size: 11pt; }
+  .proposal .benefits { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .proposal .benefit { font-size: 10pt; padding: 3mm; }
   .proposal .client-variants { display: block; }
-  .proposal-variant-views { grid-template-columns: 1fr; gap: 5mm; margin: 5mm 0; }
-  .proposal-variant-views > svg { height: 95mm; }
-  .proposal .client-scene, .proposal .client-scene img { height: 65mm; min-height: 0; }
+  .proposal-variant-views { grid-template-columns: minmax(0, 1.2fr) minmax(0, .8fr); gap: 6mm; margin: 5mm 0; }
+  .proposal-variant-views > svg { height: 96mm; }
+  .proposal .client-scene, .proposal .client-scene img { height: 96mm; min-height: 0; }
   .proposal .client-variant { border: 0; break-inside: auto; }
   .proposal .client-variant > p, .proposal .list { font-size: 10pt; }
-  .proposal .cost { grid-template-columns: 1fr; padding: 5mm; break-inside: avoid; }
-  .proposal .cost .num { text-align: left; font-size: 22pt; }
+  .proposal .cost { grid-template-columns: minmax(0, 1fr) auto; padding: 5mm; margin-top: 5mm; break-inside: avoid; }
+  .proposal .cost .num { text-align: right; font-size: 22pt; }
   .proposal .cost .cols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .proposal .clientfooter { display: block; break-inside: avoid; }
-  .proposal .clientfooter .btn { display: inline-block; margin-top: 4mm; }
-  .proposal .refs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .proposal .ref { break-inside: avoid; }
-  .proposal .ref img { height: 42mm; }
-  .proposal .palette { break-inside: avoid; }
+  .proposal .clientfooter { display: flex; break-inside: avoid; padding: 5mm; margin-top: 5mm; }
+  .proposal .clientfooter .btn { display: inline-block; flex: none; }
+  .proposal .refs { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5mm; }
+  .proposal .ref { break-inside: avoid; background: #f4eee6; }
+  .proposal .ref img { height: 45mm; object-fit: contain; }
+  .proposal .ref .cap { font-size: 8pt; overflow-wrap: anywhere; }
+  .proposal .palette { break-inside: avoid; margin: 7mm 0 !important; }
+  .proposal .swatch { width: 30mm; }
+  .proposal .chip { height: 24mm; }
+  .proposal .fineprint { font-size: 8pt; margin-top: 4mm; }
 }

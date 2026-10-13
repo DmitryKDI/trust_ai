@@ -16,13 +16,13 @@ export function createSceneRenderer(canvas: HTMLCanvasElement, scene: SceneModel
   const program = gl.createProgram()!;
   gl.attachShader(program, shader(gl.VERTEX_SHADER, `
     attribute vec3 position; attribute vec3 normal; attribute vec2 uv;
-    uniform vec3 center; uniform vec4 camera; uniform float aspect;
+    uniform vec3 center; uniform vec4 camera; uniform float aspect; uniform vec2 frameOffset;
     varying float light; varying vec2 texUV;
     void main() {
       vec3 p = position - center;
       float cy = cos(camera.x), sy = sin(camera.x), cp = cos(camera.y), sp = sin(camera.y);
       float x = cy * p.x - sy * p.z, z = sy * p.x + cy * p.z;
-      gl_Position = vec4(x / (camera.z * aspect), (cp * p.y - sp * z) / camera.z, -(sp * p.y + cp * z) / camera.w, 1.0);
+      gl_Position = vec4((x - frameOffset.x) / (camera.z * aspect), (cp * p.y - sp * z - frameOffset.y) / camera.z, -(sp * p.y + cp * z) / camera.w, 1.0);
       light = 0.65 + 0.35 * abs(dot(normal, normalize(vec3(-0.45, 0.85, -0.35)))); texUV = uv;
     }`));
   gl.attachShader(program, shader(gl.FRAGMENT_SHADER, `
@@ -33,7 +33,7 @@ export function createSceneRenderer(canvas: HTMLCanvasElement, scene: SceneModel
   gl.linkProgram(program);
   if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error('Не удалось запустить отображение 3D.');
   const uniform = (name: string) => gl.getUniformLocation(program, name);
-  const locations = { center: uniform('center'), camera: uniform('camera'), aspect: uniform('aspect'), color: uniform('color'), image: uniform('image'), textured: uniform('textured'), tile: uniform('tile') };
+  const locations = { center: uniform('center'), camera: uniform('camera'), aspect: uniform('aspect'), frameOffset: uniform('frameOffset'), color: uniform('color'), image: uniform('image'), textured: uniform('textured'), tile: uniform('tile') };
   const attrs = ['position', 'normal', 'uv'].map(n => gl.getAttribLocation(program, n));
   let disposed = false, camera = DEFAULT_CAMERA;
   const loading: Promise<void>[] = [];
@@ -63,17 +63,37 @@ export function createSceneRenderer(canvas: HTMLCanvasElement, scene: SceneModel
     }
     return batch;
   });
-  function draw(next: Camera) {
+  function draw(next: Camera, output?: { width: number; height: number; fit?: boolean }) {
     camera = next; if (disposed || gl!.isContextLost()) return;
-    const ratio = Math.min(window.devicePixelRatio || 1, 2), width = Math.max(1, Math.round(canvas.clientWidth * ratio)), height = Math.max(1, Math.round(canvas.clientHeight * ratio));
+    const ratio = Math.min(window.devicePixelRatio || 1, 2), limit = Math.min(4096, gl!.getParameter(gl!.MAX_RENDERBUFFER_SIZE));
+    const width = Math.min(limit, Math.max(1, Math.round(output?.width ?? canvas.clientWidth * ratio))), height = Math.min(limit, Math.max(1, Math.round(output?.height ?? canvas.clientHeight * ratio)));
     if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
     const aspect = width / height, b = scene.bounds;
     const diagonal = Math.hypot(b.maxX - b.minX, b.maxZ - b.minZ) / 1000;
-    const radius = Math.max(2, diagonal * .59 + scene.ceilingHeight / 4000) / Math.min(1, aspect) / camera.zoom;
+    let radius = Math.max(2, diagonal * .59 + scene.ceilingHeight / 4000) / Math.min(1, aspect) / camera.zoom;
+    let offsetX = 0, offsetY = 0;
+    if (output?.fit && scene.nodes.length) {
+      const cy = Math.cos(camera.yaw), sy = Math.sin(camera.yaw), cp = Math.cos(camera.pitch), sp = Math.sin(camera.pitch);
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (const node of scene.nodes) for (const polygon of node.geometry) for (const ring of polygon) for (const p of ring) {
+        const x = (p[0] - (b.minX + b.maxX) / 2) / 1000, z = (p[1] - (b.minZ + b.maxZ) / 2) / 1000;
+        const screenX = cy * x - sy * z;
+        minX = Math.min(minX, screenX); maxX = Math.max(maxX, screenX);
+        for (const y of [node.base, node.base + node.height]) {
+          const screenY = cp * (y / 1000 - scene.ceilingHeight / 4000) - sp * (sy * x + cy * z);
+          minY = Math.min(minY, screenY); maxY = Math.max(maxY, screenY);
+        }
+      }
+      if ([minX, maxX, minY, maxY].every(Number.isFinite)) {
+        radius = Math.max(.5, (maxX - minX) / (2 * aspect), (maxY - minY) / 2) * 1.12;
+        offsetX = (minX + maxX) / 2; offsetY = (minY + maxY) / 2;
+      }
+    }
     gl!.viewport(0, 0, width, height); gl!.clearColor(.96, .94, .91, 1); gl!.clear(gl!.COLOR_BUFFER_BIT | gl!.DEPTH_BUFFER_BIT);
     gl!.enable(gl!.DEPTH_TEST); gl!.depthFunc(gl!.LEQUAL); gl!.disable(gl!.CULL_FACE); gl!.useProgram(program);
     gl!.uniform3f(locations.center, (b.minX + b.maxX) / 2000, scene.ceilingHeight / 4000, (b.minZ + b.maxZ) / 2000);
     gl!.uniform4f(locations.camera, camera.yaw, camera.pitch, radius, Math.max(10, diagonal * 3)); gl!.uniform1f(locations.aspect, aspect); gl!.uniform1i(locations.image, 0);
+    gl!.uniform2f(locations.frameOffset, offsetX, offsetY);
     for (const batch of batches) {
       gl!.bindBuffer(gl!.ARRAY_BUFFER, batch.buffer);
       for (let i = 0; i < 3; i++) { gl!.enableVertexAttribArray(attrs[i]); gl!.vertexAttribPointer(attrs[i], i === 2 ? 2 : 3, gl!.FLOAT, false, 32, [0, 12, 24][i]); }
