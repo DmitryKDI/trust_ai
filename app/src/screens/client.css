@@ -100,6 +100,11 @@
   .proposal .ref .cap { font-size: 8pt; overflow-wrap: anywhere; }
   .proposal .palette { break-inside: avoid; margin: 7mm 0 !important; }
   .proposal .swatch { width: 30mm; }
+  .proposal-concept .palette { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5mm; }
+  .proposal-concept .swatch { width: auto; }
+  .proposal-concept .chip { height: 30mm; }
+  .proposal-concept .list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5mm; padding: 0; list-style: none; margin-top: 8mm; }
+  .proposal-concept .list li { background: #f4eee6; border-left: 2px solid #b99c82; padding: 5mm; min-height: 20mm; }
   .proposal .chip { height: 24mm; }
   .proposal .fineprint { font-size: 8pt; margin-top: 4mm; }
 }

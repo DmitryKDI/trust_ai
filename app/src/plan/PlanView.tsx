@@ -4,6 +4,8 @@ import type { FurnitureItem, Issue, PlanGeometry, PlanStyle, Pt } from '../model
 import { doorSwingPolygons, roomArea, roomWallBand, usesRoomWalls, wallPolygon, wallsGeom } from '../geometry/plan';
 import { bbox, labelPoint, union, type BBox, type Geom } from '../geometry/poly';
 import { FurnitureSymbol, type FurniturePalette } from '../furniture/Symbol';
+import { footprint } from '../furniture/catalog';
+import { clientLabelPoint } from './clientLabel';
 
 export interface PlanPalette { wall: string; floor: string; sheet: string; text: string; furniture: FurniturePalette }
 export const PALETTES: Record<PlanStyle, PlanPalette> = {
@@ -151,9 +153,9 @@ export const PlanView = forwardRef<SVGSVGElement, PlanViewProps>(function PlanVi
 
       {/* Подписи помещений */}
       {mode !== 'thumb' && !orig && g.rooms.map((r) => {
-        const c = labelPoint(r.polygon);
         const bounds = bbox(r.polygon);
         const roomFont = Math.min(fs, Math.max(30, (bounds.maxX - bounds.minX) * .78 / Math.max(1, Array.from(r.name).length * .68)), Math.max(30, (bounds.maxY - bounds.minY) / 4));
+        const c = mode === 'client' ? clientLabelPoint(r.polygon, [...items.map(footprint), ...g.fixed.map(f => f.polygon)], roomFont * Math.max(Array.from(r.name).length * .72, 7), roomFont) : labelPoint(r.polygon);
         return (
           <g key={'l' + r.id} data-room-label={r.id} pointerEvents="none" fontFamily="Manrope, Arial, sans-serif" textAnchor="middle">
             <text x={c.x} y={c.y} fontSize={roomFont} fontWeight={700} fill={pal.text} letterSpacing={roomFont * 0.04}>{r.name.toUpperCase()}</text>

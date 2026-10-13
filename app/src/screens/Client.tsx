@@ -86,7 +86,7 @@ export function ClientScreen({ back }: { back: () => void }) {
             </div>
           </div>
           <div className="planbox">
-            <PlanView g={g} items={v.items} mode="client" viewBox={vb} wallImage={project.planImage} planStyle={project.planStyle} ariaLabel={`Предварительная схема: ${v.title}`}><ScaleBar vb={vb} /></PlanView>
+            <PlanView g={g} items={v.items} mode="client" labelScale={2} viewBox={vb} wallImage={project.planImage} planStyle={project.planStyle} ariaLabel={`Предварительная схема: ${v.title}`}><ScaleBar vb={vb} /></PlanView>
           </div>
           <div className="proposal-selected-benefits">
             <div className="eyebrow">Почему рекомендуем это решение</div>
@@ -101,7 +101,7 @@ export function ClientScreen({ back }: { back: () => void }) {
               <div className="eyebrow">Сравните решения · Вариант {i + 1}{variant.id === v.id ? ' · рекомендуемый' : ''}</div><h2>{variant.title}</h2><p className="small">{variant.idea}.</p>
               <div className="proposal-variant-views">
               <SceneImage geometry={g} items={variant.items} settings={settings} catalog={c.materialCatalog ?? EMPTY_CATALOG} palette={c.palette} title={variant.title} onReady={variant.id === v.id ? setCoverImage : undefined} />
-              <PlanView g={g} items={variant.items} mode="client" viewBox={vb} wallImage={project.planImage} planStyle={project.planStyle} ariaLabel={`План варианта ${i + 1}: ${variant.title}`} />
+              <PlanView g={g} items={variant.items} mode="client" labelScale={2} viewBox={vb} wallImage={project.planImage} planStyle={project.planStyle} ariaLabel={`План варианта ${i + 1}: ${variant.title}`} />
               </div>
               <ul className="list">{variant.benefits.slice(0, 3).map(b => <li key={b}>{b}</li>)}</ul>
               {variant.compromises.length > 0 && <p className="muted small">Что учесть: {variant.compromises.filter(x => !x.startsWith('Не поместилось')).join('; ')}.</p>}
