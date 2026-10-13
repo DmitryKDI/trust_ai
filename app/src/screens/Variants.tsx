@@ -108,7 +108,7 @@ export function VariantsScreen({ next, back }: { next: () => void; back: () => v
           {project.recognition.notes?.map((t, i) => <div key={i} className="small" style={{ marginTop: 6 }}>{t}</div>)}
         </div>
       )}
-      {g.rooms.length > 0 && <QuickFix busy={busy} onRebuild={() => setRebuild((n) => n + 1)} />}
+      {(g.rooms.length > 0 || g.walls.length > 0 || !!project.planImage) && <QuickFix busy={busy} onRebuild={() => setRebuild((n) => n + 1)} />}
       {project.planImage && <ScalePanel busy={busy} onApplied={() => setRebuild((n) => n + 1)} />}
       <RoomsPanel onChanged={() => build()} busy={busy} onRescaled={() => setRebuild((n) => n + 1)} />
       <LearningPanel />
