@@ -6,7 +6,8 @@ import { twoRoom } from '../tests/fixtures/synthetic';
 import { geometryHash } from '../src/geometry/plan';
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { extractFile } from '@electron/asar';
@@ -74,11 +75,11 @@ test('real packaged EXE: offline UI, safe renderer, import, three 3D views, nati
   } finally { await close(app).catch(() => app.close()); }
 });
 
-test('installed Windows app: bad checksum is rejected; real update preserves the last edit and launches the new version', async ({}, info) => {
+test('installed Windows app: bad checksum is rejected; real update preserves the last edit and launches the new version', async () => {
   test.setTimeout(300_000);
   const current = JSON.parse(await fs.readFile('package.json', 'utf8')).version;
   const [major, minor, patch] = current.split('.').map(Number), next = `${major}.${minor}.${patch + 1}`;
-  const installDir = path.resolve(info.outputPath('installed-planner'));
+  const installDir = path.join(tmpdir(), `trust-update-${randomUUID()}`);
   await execute(path.resolve(`release/TrustRemontPlanner-Setup-${current}.exe`), ['/S', `/D=${installDir}`], { timeout: 120_000 });
   const installedExe = path.join(installDir, 'TrustRemontPlanner.exe');
   await expect.poll(async () => { try { return (await fs.stat(installedExe)).isFile(); } catch { return false; } }, { timeout: 60_000 }).toBe(true);
@@ -108,7 +109,8 @@ test('installed Windows app: bad checksum is rejected; real update preserves the
     await expect(page.getByRole('heading', { name: 'Проекты', exact: true })).toBeVisible();
     // The test controls the privileged main process. Production IPC has no feed setter.
     await app.evaluate(({ app }, url) => {
-      const updater = require(require('node:path').join(app.getAppPath(), 'node_modules/electron-updater')).autoUpdater;
+      const nativeRequire = process.getBuiltinModule('module').createRequire(app.getAppPath() + '/package.json');
+      const updater = nativeRequire('electron-updater').autoUpdater;
       updater.setFeedURL({ provider: 'generic', url });
     }, `http://127.0.0.1:${address.port}/`);
     const panel = page.getByLabel('Обновления программы', { exact: true });
@@ -148,5 +150,6 @@ test('installed Windows app: bad checksum is rejected; real update preserves the
   } finally {
     if (app) await close(app).catch(() => app!.close());
     server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve()));
+    await fs.rm(installDir, { recursive: true, force: true }).catch(() => {});
   }
 });
