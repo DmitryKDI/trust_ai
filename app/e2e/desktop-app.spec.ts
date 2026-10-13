@@ -4,6 +4,14 @@ import fs from 'node:fs/promises';
 import { newProject } from '../src/model/defaults';
 import { twoRoom } from '../tests/fixtures/synthetic';
 import { geometryHash } from '../src/geometry/plan';
+import { createServer } from 'node:http';
+import { createReadStream } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { extractFile } from '@electron/asar';
+
+const execute = promisify(execFile);
 
 const exe = path.resolve('release/win-unpacked/TrustRemontPlanner.exe');
 const launch = () => electron.launch({ executablePath: exe, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'], timeout: 60_000 });
@@ -64,4 +72,81 @@ test('real packaged EXE: offline UI, safe renderer, import, three 3D views, nati
     expect((await app.windows()).length).toBe(1);
     expect(errors).toEqual([]);
   } finally { await close(app).catch(() => app.close()); }
+});
+
+test('installed Windows app: bad checksum is rejected; real update preserves the last edit and launches the new version', async ({}, info) => {
+  test.setTimeout(300_000);
+  const current = JSON.parse(await fs.readFile('package.json', 'utf8')).version;
+  const [major, minor, patch] = current.split('.').map(Number), next = `${major}.${minor}.${patch + 1}`;
+  const installDir = path.resolve(info.outputPath('installed-planner'));
+  await execute(path.resolve(`release/TrustRemontPlanner-Setup-${current}.exe`), ['/S', `/D=${installDir}`], { timeout: 120_000 });
+  const installedExe = path.join(installDir, 'TrustRemontPlanner.exe');
+  await expect.poll(async () => { try { return (await fs.stat(installedExe)).isFile(); } catch { return false; } }, { timeout: 60_000 }).toBe(true);
+  const fixture = path.resolve(`release-update-fixture/TrustRemontPlanner-Setup-${next}.exe`);
+  const bytes = await fs.readFile(fixture), sha512 = createHash('sha512').update(bytes).digest('base64');
+  const filename = path.basename(fixture);
+  let corrupt = true, metadataRequests = 0, installerRequests = 0;
+  const server = createServer((request, response) => {
+    const pathname = new URL(request.url!, 'http://localhost').pathname;
+    if (pathname === '/latest.yml') {
+      metadataRequests++;
+      const digest = corrupt ? Buffer.alloc(64).toString('base64') : sha512;
+      response.writeHead(200, { 'Content-Type': 'text/yaml', 'Cache-Control': 'no-store' });
+      response.end(`version: ${next}\nfiles:\n  - url: ${filename}\n    sha512: ${digest}\n    size: ${bytes.length}\npath: ${filename}\nsha512: ${digest}\nreleaseDate: '2026-10-13T00:00:00.000Z'\n`);
+    } else if (pathname === `/${filename}`) {
+      installerRequests++;
+      response.writeHead(200, { 'Content-Length': bytes.length, 'Content-Type': 'application/octet-stream' });
+      createReadStream(fixture).pipe(response);
+    } else { response.writeHead(404); response.end(); }
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address() as { port: number };
+  let app: ElectronApplication | undefined;
+  const installedLaunch = () => electron.launch({ executablePath: installedExe, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'], timeout: 60_000 });
+  try {
+    app = await installedLaunch(); let page = await app.firstWindow();
+    await expect(page.getByRole('heading', { name: 'Проекты', exact: true })).toBeVisible();
+    // The test controls the privileged main process. Production IPC has no feed setter.
+    await app.evaluate(({ app }, url) => {
+      const updater = require(require('node:path').join(app.getAppPath(), 'node_modules/electron-updater')).autoUpdater;
+      updater.setFeedURL({ provider: 'generic', url });
+    }, `http://127.0.0.1:${address.port}/`);
+    const panel = page.getByLabel('Обновления программы', { exact: true });
+    await panel.getByRole('button', { name: /^Обновления ·/ }).click();
+    await panel.getByRole('button', { name: 'Проверить обновления', exact: true }).click();
+    await expect(panel.locator('[data-update-status]')).toHaveAttribute('data-update-status', 'available');
+    await panel.getByRole('button', { name: 'Скачать обновление', exact: true }).click();
+    await expect(panel.locator('[data-update-status]')).toHaveAttribute('data-update-status', 'error', { timeout: 60_000 });
+    await expect(panel).toContainText('Файл обновления повреждён');
+    await expect(panel.getByRole('button', { name: 'Установить и перезапустить' })).toHaveCount(0);
+    corrupt = false;
+    await panel.getByRole('button', { name: 'Проверить обновления', exact: true }).click();
+    await expect(panel.locator('[data-update-status]')).toHaveAttribute('data-update-status', 'available');
+    await panel.getByRole('button', { name: 'Скачать обновление', exact: true }).click();
+    await expect(panel.locator('[data-update-status]')).toHaveAttribute('data-update-status', 'ready', { timeout: 60_000 });
+    expect(metadataRequests).toBeGreaterThanOrEqual(2); expect(installerRequests).toBe(2);
+    const project = newProject({ alias: 'Проект после обновления', city: 'Москва', manager: 'До обновления', date: '2026-10-13' });
+    await page.locator('input[type=file]').setInputFiles({ name: 'update-project.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ format: 'trust-planner-project', version: 1, project, files: {} })) });
+    await page.getByLabel('Менеджер', { exact: true }).fill('Последняя правка перед обновлением');
+    const exited = new Promise(resolve => app!.process().once('exit', resolve));
+    await panel.getByRole('button', { name: 'Установить и перезапустить', exact: true }).click();
+    await exited; app = undefined;
+    await expect.poll(() => {
+      try { return JSON.parse(extractFile(path.join(installDir, 'resources/app.asar'), 'package.json').toString()).version; } catch { return ''; }
+    }, { timeout: 120_000 }).toBe(next);
+    // The updater launches the application normally; stop that CI-owned instance
+    // and attach Playwright to a fresh launch to inspect the preserved project.
+    await expect.poll(async () => {
+      try { const result = await execute('tasklist', ['/FI', 'IMAGENAME eq TrustRemontPlanner.exe', '/FO', 'CSV']); return result.stdout.includes('TrustRemontPlanner.exe'); } catch { return false; }
+    }, { timeout: 60_000 }).toBe(true);
+    await execute('taskkill', ['/F', '/IM', 'TrustRemontPlanner.exe']);
+    app = await installedLaunch(); page = await app.firstWindow();
+    expect(await app.evaluate(({ app }) => app.getVersion())).toBe(next);
+    await page.locator('.prow').filter({ hasText: project.alias }).getByRole('button', { name: 'Открыть', exact: true }).click();
+    await expect(page.getByLabel('Менеджер', { exact: true })).toHaveValue('Последняя правка перед обновлением');
+    expect(await page.evaluate(() => Object.keys(window.trustDesktop!))).not.toContain('setFeedURL');
+  } finally {
+    if (app) await close(app).catch(() => app!.close());
+    server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve()));
+  }
 });

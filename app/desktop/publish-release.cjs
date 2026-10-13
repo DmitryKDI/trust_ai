@@ -1,0 +1,27 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const { createHash } = require('node:crypto');
+const { spawnSync } = require('node:child_process');
+const version = require('../package.json').version;
+if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error('Only stable versions can be published.');
+const repository = 'DmitryKDI/trust_ai';
+const commit = process.env.GITHUB_SHA;
+if (process.env.GITHUB_REPOSITORY !== repository || !/^[a-f0-9]{40}$/.test(commit ?? '')) throw new Error('Publication requires the repository workflow.');
+const directory = path.resolve(process.argv[2]);
+const installer = path.join(directory, `TrustRemontPlanner-Setup-${version}.exe`);
+const metadata = path.join(directory, 'latest.yml');
+const text = fs.readFileSync(metadata, 'utf8');
+const releaseVersion = /^version:\s*(\S+)\s*$/m.exec(text)?.[1];
+const sha512 = /^\s+sha512:\s*(\S+)\s*$/m.exec(text)?.[1];
+if (releaseVersion !== version || sha512 !== createHash('sha512').update(fs.readFileSync(installer)).digest('base64')) throw new Error('Update metadata does not match the installer.');
+const tag = `v${version}`;
+const existing = spawnSync('gh', ['release', 'view', tag, '--repo', repository, '--json', 'tagName'], { encoding: 'utf8' });
+if (existing.status === 0) { console.log(`Release ${tag} already exists. Increment the application version to publish an update.`); process.exit(0); }
+if (!/not found|404/i.test(existing.stderr ?? '')) throw new Error('Could not inspect existing releases.');
+const assets = [installer, metadata, path.join(directory, 'SHA256SUMS.txt')];
+const blockmap = `${installer}.blockmap`;
+if (fs.existsSync(blockmap)) assets.push(blockmap);
+const notes = path.join(__dirname, '../release-notes.md');
+const result = spawnSync('gh', ['release', 'create', tag, ...assets, '--repo', repository, '--target', commit, '--title', `Траст ремонт — Планировщик ${version}`, '--notes-file', notes, '--latest'], { stdio: 'inherit' });
+if (result.error) throw result.error;
+if (result.status !== 0) throw new Error('Release publication failed.');

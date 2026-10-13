@@ -1,6 +1,7 @@
 name: Manual editor checks
 on:
   workflow_dispatch:
+  workflow_call:
   push:
     branches: [claude/festive-turing-m7na3z]
     paths:
@@ -37,3 +38,4 @@ jobs:
         with:
           name: manual-editor-failure
           path: app/test-results
+

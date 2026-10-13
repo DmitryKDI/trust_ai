@@ -1,7 +1,7 @@
 {
   "name": "trust-remont-planner",
   "private": true,
-  "version": "0.2.1",
+  "version": "0.2.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -16,9 +16,11 @@
     "desktop:build": "npm run desktop:assets && tsc -b && vite build --mode desktop",
     "desktop:start": "npm run desktop:build && electron .",
     "desktop:package": "npm run desktop:build && electron-builder --win nsis --x64 --publish never",
-    "desktop:test": "playwright test --config playwright.desktop.config.ts"
+    "desktop:test": "playwright test --config playwright.desktop.config.ts",
+    "desktop:fixture": "node desktop/build-update-fixture.cjs"
   },
   "dependencies": {
+    "electron-updater": "6.8.9",
     "pdfjs-dist": "^6.4.299",
     "polygon-clipping": "^0.15.7",
     "react": "^19.3.0",
@@ -51,7 +53,10 @@
     },
     "files": [
       "dist/**/*",
-      "desktop/*.cjs",
+      "desktop/main.cjs",
+      "desktop/preload.cjs",
+      "desktop/security.cjs",
+      "desktop/updates.cjs",
       "desktop/icon.png",
       "desktop/icon.ico",
       "package.json"
@@ -84,7 +89,15 @@
         "ru_RU"
       ],
       "language": "1049"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "DmitryKDI",
+        "repo": "trust_ai",
+        "releaseType": "release"
+      }
+    ]
   },
   "overrides": {
     "global-agent": "4.1.3"

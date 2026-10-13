@@ -10,6 +10,8 @@ on:
 permissions:
   contents: read
 jobs:
+  editor-checks:
+    uses: ./.github/workflows/editor-check.yml
   windows-app:
     runs-on: windows-2022
     timeout-minutes: 20
@@ -29,6 +31,8 @@ jobs:
       - run: npx vitest run --exclude tests/bench.test.ts --maxWorkers=2 --testTimeout=30000
       - name: Build the Windows installer
         run: npm run desktop:package
+      - name: Build an unpublished installer for the real upgrade test
+        run: npm run desktop:fixture
       - name: Test the packaged EXE, PDF, backup and project persistence
         run: npm run desktop:test
       - name: Installer checksums
@@ -39,6 +43,8 @@ jobs:
           name: TrustRemontPlanner-Windows
           path: |
             app/release/TrustRemontPlanner-Setup-*.exe
+            app/release/TrustRemontPlanner-Setup-*.exe.blockmap
+            app/release/latest.yml
             app/release/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 90
@@ -48,3 +54,22 @@ jobs:
           name: Windows-app-check
           path: app/test-results
           if-no-files-found: ignore
+  publish-update:
+    needs: [windows-app, editor-checks]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: TrustRemontPlanner-Windows
+          path: release
+      - name: Publish the tested version for in-app updates
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node app/desktop/publish-release.cjs release
+
