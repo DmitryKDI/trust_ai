@@ -2,8 +2,25 @@
 import type { Calibration, Opening, PlanGeometry, Pt, Wall } from '../model/types';
 import { uid } from '../model/defaults';
 import { add, dist, dot, leftNormal, mul, norm, projectOnSegment, sub } from '../geometry/poly';
-import { wallPolygon } from '../geometry/plan';
+import { usesRoomWalls, wallPolygon } from '../geometry/plan';
 import type { Arc, FillRect, SnapIndex } from '../pdf/vectors';
+import { repairWallJunctions } from './wallJunctions';
+
+export const WALL_KINDS = [['unknown', 'Тип неизвестен'], ['bearing', 'Несущая'], ['partition', 'Перегородка']] as const;
+
+export function addPlanWall(g: PlanGeometry, wall: Wall): PlanGeometry {
+  if (![wall.a.x, wall.a.y, wall.b.x, wall.b.y, wall.thickness].every(Number.isFinite) || wall.thickness < 30 || dist(wall.a, wall.b) < 50) throw new Error('Нужны две разные точки стены и толщина от 30 мм.');
+  return repairWallJunctions({ ...g, ...(usesRoomWalls(g) ? { wallMode: 'rooms' as const } : {}), walls: [...g.walls, wall] }, 120, new Set([wall.id]));
+}
+
+/** Все сегменты полилинии добавляются одним действием истории. */
+export function addPlanWallChain(g: PlanGeometry, points: Pt[], style: Pick<Wall, 'thickness' | 'kind'>): PlanGeometry {
+  if (points.length < 2) return g;
+  return points.slice(1).reduce((next, b, i) => addPlanWall(next, {
+    id: uid('w'), a: points[i], b, ...style,
+    source: 'manual', verifiedByManager: true, sourcePage: g.sourcePage,
+  }), g);
+}
 
 /** Предварительный масштаб до калибровки: PDF — как 1:50 (мм на pt), растр — 10 мм на пиксель. */
 export function provisionalScale(mime: string | undefined): number {
@@ -120,13 +137,31 @@ export function openingFromClicks(g: PlanGeometry, p1: Pt, p2: Pt, type: 'door' 
   };
 }
 
-export type SnapKind = 'geometry' | 'vector-point' | 'vector-line' | 'ortho' | 'none';
+export type SnapKind = 'geometry' | 'vector-point' | 'vector-line' | 'ortho' | 'closure' | 'none';
+
+/** Замыкание имеет приоритет над ортогональю и другими узлами. */
+export function snapPolylineClosure(raw: Pt, points: Pt[], radiusMm: number): Pt | null {
+  return points.length >= 3 && dist(raw, points[0]) <= radiusMm ? { ...points[0] } : null;
+}
 
 export interface SnapResult { p: Pt; kind: SnapKind }
 
+export function orthogonalPoint(anchor: Pt, raw: Pt): Pt {
+  return Math.abs(raw.x - anchor.x) >= Math.abs(raw.y - anchor.y)
+    ? { x: raw.x, y: anchor.y } : { x: anchor.x, y: raw.y };
+}
+
+/** Изменяет ширину проёма вокруг его центра, сохраняя ось и сторону открывания. */
+export function resizeOpening(o: Opening, width: number): Opening {
+  if (!Number.isFinite(width) || width < 300 || width > 6000 || dist(o.a, o.b) < 1) throw new Error('Ширина проёма должна быть от 300 до 6000 мм.');
+  const mid = mul(add(o.a, o.b), 0.5), half = mul(norm(sub(o.b, o.a)), width / 2);
+  return { ...o, a: sub(mid, half), b: add(mid, half), source: 'manual', verifiedByManager: true };
+}
+
 /** Привязка курсора: точки разметки → точки чертежа → ортогональ → линии чертежа. */
-export function snapPoint(raw: Pt, opts: { g: PlanGeometry; k: number; index: SnapIndex | null; radiusMm: number; anchor: Pt | null; ortho: boolean; vectors: boolean }): SnapResult {
+export function snapPoint(raw: Pt, opts: { g: PlanGeometry; k: number; index: SnapIndex | null; radiusMm: number; anchor: Pt | null; ortho: boolean; vectors: boolean; forceOrtho?: boolean }): SnapResult {
   const { g, k, index, radiusMm, anchor, ortho } = opts;
+  if (anchor && opts.forceOrtho) return { p: orthogonalPoint(anchor, raw), kind: 'ortho' };
   const geomPts: Pt[] = [
     ...g.walls.flatMap((w) => [w.a, w.b, ...wallPolygon(w)]),
     ...g.openings.flatMap((o) => [o.a, o.b]),

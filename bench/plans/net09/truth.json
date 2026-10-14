@@ -1,0 +1,15 @@
+{
+ "source": "открытые источники (архив пользователя, BTI_plan_09.jpg)",
+ "style": "фото, стены со штриховкой",
+ "inputAreaM2": null,
+ "rooms": [
+  10.3,
+  17.0,
+  8.6,
+  8.4
+ ],
+ "roomsComplete": false,
+ "doors": null,
+ "windows": null,
+ "entrance": true
+}

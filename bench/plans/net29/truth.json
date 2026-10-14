@@ -1,0 +1,17 @@
+{
+ "source": "открытые источники (архив пользователя, BTI_plan_29.jpg)",
+ "style": "МосгорБТИ 1:200, эркер, штамп",
+ "inputAreaM2": null,
+ "rooms": [
+  18.9,
+  14.9,
+  7.5,
+  11.2,
+  6.7,
+  12.9
+ ],
+ "roomsComplete": false,
+ "doors": null,
+ "windows": null,
+ "entrance": true
+}

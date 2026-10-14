@@ -1,0 +1,11 @@
+{
+ "source": "открытые источники (архив пользователя, BTI_plan_23.jpg)",
+ "style": "цветная планировка, 4 комнаты, без площадей",
+ "inputAreaM2": null,
+ "rooms": [],
+ "roomsComplete": false,
+ "roomCount": 8,
+ "doors": null,
+ "windows": null,
+ "entrance": true
+}

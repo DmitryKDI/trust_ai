@@ -6,8 +6,19 @@ import {
   segmentRect, simplifyRing, sub, toGeom, union, type Geom,
 } from './poly';
 
-export function wallPolygon(w: Wall): Pt[] {
-  return segmentRect(w.a, w.b, w.thickness);
+export function wallPolygon(w: Wall, neighbors: Wall[] = []): Pt[] {
+  const direction = norm(sub(w.b, w.a));
+  const extension = (p: Pt) => neighbors.reduce((length, other) => {
+    if (other.id === w.id || ![other.a, other.b].some(q => dist(p, q) < 1)) return length;
+    const d = norm(sub(other.b, other.a)), sine = Math.abs(direction.x * d.y - direction.y * d.x);
+    // Fill perpendicular corners through the outer wall face; free ends stay flat.
+    return sine > .95 ? Math.max(length, other.thickness / (2 * sine)) : length;
+  }, 0);
+  return segmentRect(add(w.a, mul(direction, -extension(w.a))), add(w.b, mul(direction, extension(w.b))), w.thickness);
+}
+
+export function usesRoomWalls(g: PlanGeometry): boolean {
+  return g.rooms.length > 0 && (g.wallMode === 'rooms' || (!g.wallMode && !g.walls.length));
 }
 
 /** Прямоугольник проёма; чуть толще стены, чтобы гарантированно прорезать её. */
@@ -42,9 +53,19 @@ export function doorSwingPolygon(o: Opening, segments = 12): Pt[] {
   return pts;
 }
 
+/** Две равные створки открываются с обоих откосов в одну сторону. */
+export function doorSwingPolygons(o: Opening, segments = 12): Pt[][] {
+  if (o.leaves !== 2) return [doorSwingPolygon(o, segments)];
+  const mid = mul(add(o.a, o.b), 0.5);
+  return [
+    doorSwingPolygon({ ...o, b: mid, hinge: 'a', leaves: 1 }, segments),
+    doorSwingPolygon({ ...o, a: mid, hinge: 'b', leaves: 1 }, segments),
+  ];
+}
+
 /** Полигоны стен с прорезанными проёмами (MultiPolygon). */
-export function wallsGeom(g: PlanGeometry, cutOpenings = true): Geom {
-  const walls = union(...g.walls.map((w) => toGeom(wallPolygon(w))));
+export function wallsGeom(g: PlanGeometry, cutOpenings = true, neighbors = g.walls): Geom {
+  const walls = union(...g.walls.map((w) => toGeom(wallPolygon(w, neighbors))));
   if (!cutOpenings || !g.openings.length) return walls;
   return difference(walls, union(...g.openings.map((o) => toGeom(openingRect(o)))));
 }
@@ -52,7 +73,7 @@ export function wallsGeom(g: PlanGeometry, cutOpenings = true): Geom {
 /** Стены + все проёмы как сплошная граница (для поиска контуров помещений). */
 export function barrierGeom(g: PlanGeometry): Geom {
   return union(
-    ...g.walls.map((w) => toGeom(wallPolygon(w))),
+    ...g.walls.map((w) => toGeom(wallPolygon(w, g.walls))),
     ...g.openings.map((o) => toGeom(segmentRect(o.a, o.b, o.thickness))),
   );
 }
@@ -104,8 +125,9 @@ export function geometryHash(g: PlanGeometry): string {
   const r = (n: number) => Math.round(n);
   const p = (q: Pt) => `${r(q.x)},${r(q.y)}`;
   const parts = [
+    ...(g.wallMode ? [`WM${g.wallMode}`] : []),
     ...g.walls.map((w) => `W${p(w.a)}|${p(w.b)}|${r(w.thickness)}|${w.kind}`),
-    ...g.openings.map((o) => `O${o.type}${p(o.a)}|${p(o.b)}|${o.hinge}${o.swing}${o.isEntrance ? 'E' : ''}`),
+    ...g.openings.map((o) => `O${o.type}${p(o.a)}|${p(o.b)}|${o.hinge}${o.swing}${o.isEntrance ? 'E' : ''}${o.leaves === 2 ? '|L2' : ''}`),
     ...g.fixed.map((f) => `F${f.kind}${f.polygon.map(p).join(';')}`),
     ...g.wetZones.map((z) => `Z${z.polygon.map(p).join(';')}`),
     ...g.rooms.map((m) => `R${m.type}${m.polygon.map(p).join(';')}`),

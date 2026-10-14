@@ -1,0 +1,19 @@
+{
+ "source": "открытые источники (архив пользователя, BTI_plan_01.jpg)",
+ "style": "типовой проект, курсив, стены чёрные, лоджия",
+ "inputAreaM2": 68.61,
+ "rooms": [
+  12.74,
+  15.16,
+  11.8,
+  1.8,
+  2.53,
+  6.82,
+  3.67,
+  14.09
+ ],
+ "roomsComplete": false,
+ "doors": null,
+ "windows": null,
+ "entrance": true
+}

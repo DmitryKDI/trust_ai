@@ -1,11 +1,23 @@
 // Собственные 2D-обозначения мебели (вид сверху) в локальных мм предмета:
 // центр в (0,0), спинка на y = −d/2, фасад на y = +d/2.
 import type { FurnitureItem } from '../model/types';
+import { CATALOG } from './catalog';
 
 export interface FurniturePalette { stroke: string; fill: string; light: string; dark: string }
 export const DEFAULT_FURNITURE: FurniturePalette = { stroke: '#8a9492', fill: '#e4e8e6', light: '#f7f8f6', dark: '#b3bcb9' };
 
 export function FurnitureSymbol({ it, pal = DEFAULT_FURNITURE }: { it: FurnitureItem; pal?: FurniturePalette }) {
+  const c = CATALOG[it.type];
+  // Рисунок из типового размера масштабируется вместе с габаритом. Малые
+  // пользовательские размеры не дают отрицательных размеров внутренних деталей.
+  const w = c.w;
+  const modules = it.modules?.map(m => ({ ...m, w: m.w * c.w / it.w }));
+  return <g transform={`scale(${it.w / w} ${it.d / c.d})`}>
+    <FurnitureDrawing it={{ ...it, w, d: c.d, modules }} pal={pal} />
+  </g>;
+}
+
+function FurnitureDrawing({ it, pal }: { it: FurnitureItem; pal: FurniturePalette }) {
   const S = pal.stroke, F = pal.fill, F2 = pal.light, D = pal.dark;
   const line = { stroke: S, strokeWidth: 1, vectorEffect: 'non-scaling-stroke' as const, fill: 'none' };
   const body = { stroke: S, strokeWidth: 1, vectorEffect: 'non-scaling-stroke' as const, fill: F };

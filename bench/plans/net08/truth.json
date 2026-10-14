@@ -1,0 +1,15 @@
+{
+ "source": "открытые источники (архив пользователя, BTI_plan_08.jpg)",
+ "style": "фото бумажного плана БТИ под небольшим углом",
+ "inputAreaM2": null,
+ "rooms": [
+  16.0,
+  18.9,
+  13.4,
+  8.6
+ ],
+ "roomsComplete": false,
+ "doors": null,
+ "windows": null,
+ "entrance": true
+}

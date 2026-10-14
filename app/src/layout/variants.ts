@@ -1,6 +1,7 @@
 // Сборка вариантов: движок по сценариям → проверка → объяснение.
 // Вариант с ошибками не выдаётся за готовый: помечается «требует доработки» и не утверждается.
 import type { Brief, FurnitureItem, PlanGeometry, ScenarioKey, Variant } from '../model/types';
+import { planningInputsHash } from '../brief/requirements';
 import { CATALOG } from '../furniture/catalog';
 import { geometryHash } from '../geometry/plan';
 import type { Rules } from '../rules/rules';
@@ -49,7 +50,7 @@ export function explain(g: PlanGeometry, scenario: ScenarioKey, items: Furniture
     if (kid) benefits.push(`Детская: кровать, ${items.some((i) => i.type === 'desk' && i.roomId === kid.id) ? 'стол у окна' : 'место для занятий'} и шкаф`);
     if (dining) { const n = dining.seats ?? 4; benefits.push(`Обеденный стол на ${n} ${n <= 4 ? 'персоны' : 'персон'}`); }
   }
-  if (bed) benefits.push(`Кровать ${bed.w}×${bed.d - 100} мм изголовьем к стене, подход ${brief.bedAccessBothSides ? 'с двух сторон' : 'сбоку'}`);
+  if (bed) benefits.push(`Кровать ${bed.w}×${bed.d} мм (полный габарит) изголовьем к стене, подход ${brief.bedAccessBothSides ? 'с двух сторон' : 'сбоку'}`);
   for (const d of desks) if (!benefits.some((b) => b.includes('стол у окна'))) benefits.push(`Рабочее место — ${roomName(d.roomId).toLowerCase()}`);
   if (scenario !== 'storage' && mt.storageMm) benefits.push(`Хранение — ${m1(mt.storageMm)} п. м шкафов`);
   if (scenario !== 'space') benefits.push(`Свободная площадь пола — ${mt.freeFloor.toString().replace('.', ',')} м²`);
@@ -73,33 +74,43 @@ export function explain(g: PlanGeometry, scenario: ScenarioKey, items: Furniture
   return { benefits, compromises, assumptions, changes, metrics: mt };
 }
 
-export function buildVariants(g: PlanGeometry, brief: Brief, rules: Rules, scenarios: ScenarioKey[] = SCENARIO_ORDER): BuildResult {
+export interface BuildOptions { seed?: number; previous?: FurnitureItem[]; fixedByScenario?: Partial<Record<ScenarioKey, FurnitureItem[]>>; roomIds?: string[] }
+
+export function layoutSignature(items: FurnitureItem[]): string {
+  return items.map(i => `${i.type}:${i.roomId}:${i.rot}:${i.w}:${i.d}:${Math.round(i.x)},${Math.round(i.y)}`).sort().join('|');
+}
+
+export function buildVariants(g: PlanGeometry, brief: Brief, rules: Rules, scenarios: ScenarioKey[] = SCENARIO_ORDER, options: BuildOptions = {}): BuildResult {
   const variants: Variant[] = [];
   const rejected: Rejected[] = [];
-  const avoid: Placement[] = [];
+  const avoid: Placement[] = (options.previous ?? []).filter(i => i.ruleId && i.roomId).map(i => ({ ruleId: i.ruleId!, roomId: i.roomId!, rot: i.rot, x: i.x, y: i.y, edge: null }));
   const sigs: { sig: string; title: string; storage: number }[] = [];
   const hash = geometryHash(g);
 
   for (const scenario of scenarios) {
-    const r = runEngine({ g, brief, rules, scenario, avoid });
+    const fixed = options.fixedByScenario?.[scenario] ?? [];
+    const fixedIds = new Set(fixed.map(i => i.id));
+    if (fixed.some(i => brief.layoutNeeds?.forbidden.includes(i.type))) throw new Error('Закреплённый предмет запрещён новым брифом. Снимите закрепление или измените запрет; прежний вариант сохранён.');
+    const r = runEngine({ g, brief, rules, scenario, avoid, seed: options.seed, fixed, roomIds: options.roomIds });
     let v = validate(g, r.items, rules, brief, { expectedHash: hash });
     // Доводка: точная проверка нашла проблему у необязательного предмета — убираем его и перепроверяем.
     const mandatory = new Set(r.scenario.rules.filter((x) => x.mandatory).map((x) => x.id));
     for (let round = 0; round < 6; round++) {
-      const errs = v.issues.filter((i) => i.severity === 'error');
+      const errs = v.issues.filter((i) => i.severity === 'error' && i.code !== 'brief-requirement');
       if (!errs.length) break;
-      const implicated = [...new Set(errs.flatMap((i) => i.itemIds))].map((id) => r.items.find((it) => it.id === id)).filter((it): it is FurnitureItem => !!it && !mandatory.has(it.ruleId ?? ''));
+      const implicated = [...new Set(errs.flatMap((i) => i.itemIds))].map((id) => r.items.find((it) => it.id === id)).filter((it): it is FurnitureItem => !!it && !fixedIds.has(it.id) && !mandatory.has(it.ruleId ?? ''));
       if (!implicated.length) break;
       const drop = implicated[implicated.length - 1];
       r.items = r.items.filter((it) => it.id !== drop.id);
       r.skipped.push({ ruleId: drop.ruleId ?? '', type: drop.type, roomName: g.rooms.find((x) => x.id === drop.roomId)?.name ?? '', mandatory: false, reason: 'убран при проверке подходов' });
       v = validate(g, r.items, rules, brief, { expectedHash: hash });
     }
+    if (v.issues.some(i => i.severity === 'error' && i.code !== 'brief-requirement' && i.itemIds.some(id => fixedIds.has(id)))) throw new Error('Закреплённая мебель или предметы вне выбранной комнаты нарушают текущие правила. Исправьте их или снимите закрепление; прежний вариант сохранён.');
     const errors = v.issues.filter((i) => i.severity === 'error');
     const sig = signature(r.placements);
     const storage = metricsOf(g, r.items, rules).storageMm;
     const dup = sigs.find((s) => s.sig === sig && Math.abs(s.storage - storage) < 500);
-    if (dup) {
+    if (dup && !fixed.length) {
       rejected.push({ scenario, title: r.scenario.title, reason: `в этой квартире совпадает с вариантом «${dup.title}» — не показываем как отдельный` });
       continue;
     }
@@ -114,6 +125,7 @@ export function buildVariants(g: PlanGeometry, brief: Brief, rules: Rules, scena
       title: r.scenario.title,
       idea: r.scenario.idea,
       geometryHash: hash,
+      inputsHash: planningInputsHash(brief, rules),
       items: r.items,
       ...ex,
       issues: v.issues,

@@ -2,7 +2,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import type { PlanGeometry, Project } from '../model/types';
 import { saveProject } from '../storage/db';
+import { Autosave } from './autosave';
+import { invalidatePlanningInputs } from '../brief/requirements';
 import { resolveRules, type Rules } from '../rules/rules';
+import { desktop } from '../desktop';
 
 interface Store {
   project: Project;
@@ -15,6 +18,8 @@ interface Store {
   canUndo: boolean;
   canRedo: boolean;
   saving: boolean;
+  saveError: string | null;
+  flushSave: () => Promise<void>;
 }
 
 interface S { project: Project; past: PlanGeometry[]; future: PlanGeometry[] }
@@ -26,7 +31,7 @@ type A =
 
 function reducer(s: S, a: A): S {
   switch (a.t) {
-    case 'update': return { ...s, project: a.fn(s.project) };
+    case 'update': return { ...s, project: invalidatePlanningInputs(s.project, a.fn(s.project)) };
     case 'geom': {
       const g = s.project.geometry;
       const next = a.fn(g);
@@ -52,16 +57,29 @@ const Ctx = createContext<Store | null>(null);
 export function ProjectProvider({ initial, children }: { initial: Project; children: ReactNode }) {
   const [s, dispatch] = useReducer(reducer, { project: initial, past: [], future: [] });
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const saver = useRef<Autosave | null>(null);
+  if (!saver.current) saver.current = new Autosave(saveProject, (busy, error) => { setSaving(busy); setSaveError(error); });
   const timer = useRef<number | null>(null);
   const { project } = s;
 
   useEffect(() => {
-    setSaving(true);
-    if (timer.current) window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => {
-      saveProject({ ...project, updatedAt: new Date().toISOString() }).finally(() => setSaving(false));
-    }, 400);
+    saver.current!.schedule(project);
+    timer.current = window.setTimeout(() => { void saver.current!.flush().catch(() => {}); }, 400);
+    return () => { if (timer.current !== null) window.clearTimeout(timer.current); };
   }, [project]);
+
+  useEffect(() => {
+    const flush = () => { void saver.current!.flush().catch(() => {}); };
+    const visibility = () => { if (document.visibilityState === 'hidden') flush(); };
+    const beforeUnload = (e: BeforeUnloadEvent) => { if (saver.current!.dirty) { flush(); e.preventDefault(); e.returnValue = ''; } };
+    document.addEventListener('visibilitychange', visibility);
+    window.addEventListener('pagehide', flush);
+    window.addEventListener('beforeunload', beforeUnload);
+    return () => { document.removeEventListener('visibilitychange', visibility); window.removeEventListener('pagehide', flush); window.removeEventListener('beforeunload', beforeUnload); flush(); };
+  }, []);
+  const flushSave = useCallback(() => saver.current!.flush(), []);
+  useEffect(() => desktop?.onBeforeClose(flushSave), [flushSave]);
 
   const update = useCallback((fn: (p: Project) => Project) => dispatch({ t: 'update', fn }), []);
   const editGeometry = useCallback((fn: (g: PlanGeometry) => PlanGeometry) => dispatch({ t: 'geom', fn }), []);
@@ -69,7 +87,7 @@ export function ProjectProvider({ initial, children }: { initial: Project; child
   const redo = useCallback(() => dispatch({ t: 'redo' }), []);
   const rules = useMemo(() => resolveRules(project.ruleOverrides), [project.ruleOverrides]);
 
-  const value: Store = { project, rules, update, editGeometry, undo, redo, canUndo: s.past.length > 0, canRedo: s.future.length > 0, saving };
+  const value: Store = { project, rules, update, editGeometry, undo, redo, canUndo: s.past.length > 0, canRedo: s.future.length > 0, saving, saveError, flushSave };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

@@ -1,0 +1,61 @@
+name: Publish planner to GitHub Pages
+
+on:
+  push:
+    branches: [claude/festive-turing-m7na3z]
+    paths:
+      - app/**
+      - config/**
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Install locked dependencies
+        working-directory: app
+        run: npm ci
+      - name: Build for repository Pages URL
+        working-directory: app
+        run: npm run build -- --base=/trust_ai/
+      - name: Install smoke-test browser
+        working-directory: app
+        run: npx playwright install --with-deps chromium
+      - name: Verify production recognition and layout on desktop and touch
+        working-directory: app
+        run: npx playwright test --config=playwright.production.config.ts
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: app/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish static application
+        id: deployment
+        uses: actions/deploy-pages@v4

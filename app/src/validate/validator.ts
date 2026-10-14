@@ -1,10 +1,12 @@
+import { requirementIssues } from '../brief/requirements';
 // Валидатор расстановки. Чистые функции: вход — геометрия, предметы, правила, бриф.
 import type { Brief, FurnitureItem, Issue, PlanGeometry, Pt } from '../model/types';
 import { bedSideStrips, CATALOG, footprint, localRect, serviceZones, sinkCenter } from '../furniture/catalog';
-import { bbox, bboxOverlap, dist, EPS_AREA, geomArea, intersection, outsideArea, overlapArea, pointInGeom, polyArea, toGeom, union, type Geom } from '../geometry/poly';
+import { bbox, bboxOverlap, dist, EPS_AREA, geomArea, intersection, outsideArea, overlapArea, pointInGeom, polyArea, segmentRect, toGeom, union, type Geom } from '../geometry/poly';
 import type { Rules } from '../rules/rules';
 import { planContext, roomOfPoint, type PlanContext } from './context';
 import { anyCellIn, distanceField, Grid, reachable } from './grid';
+import { usesRoomWalls, wallsGeom } from '../geometry/plan';
 
 const nameOf = (it: FurnitureItem) => CATALOG[it.type].name.toLowerCase();
 const issue = (severity: Issue['severity'], code: string, message: string, itemIds: string[] = []): Issue => ({ severity, code, message, itemIds });
@@ -50,7 +52,7 @@ export function checkItem(input: LocalCheckInput, it: FurnitureItem, others: Fur
     if (overlapArea(fp, ctx.walls) > EPS_AREA) out.push(issue('error', 'wall-collision', `${nm} пересекает стену`, [it.id]));
     for (const f of ctx.fixed) if (overlapArea(fp, f.poly) > EPS_AREA) out.push(issue('error', 'fixed-collision', `${nm} перекрывает ${fixedName(f.kind)}`, [it.id]));
     for (const d of ctx.doors) {
-      if (overlapArea(fp, d.swing) > EPS_AREA) out.push(issue('error', 'door-swing', `${nm} мешает открыванию двери`, [it.id]));
+      if (d.swings.some(s => overlapArea(fp, s) > EPS_AREA)) out.push(issue('error', 'door-swing', `${nm} мешает открыванию двери`, [it.id]));
       else if (overlapArea(fp, d.rect) > EPS_AREA) out.push(issue('error', 'door-block', `${nm} перекрывает дверной проём`, [it.id]));
     }
     if (cat.tall) for (const w of ctx.windows) if (overlapArea(fp, w.tallZone) > EPS_AREA) out.push(issue('error', 'window-tall', `${nm} — высокая мебель перед окном`, [it.id]));
@@ -79,7 +81,7 @@ export function checkItem(input: LocalCheckInput, it: FurnitureItem, others: Fur
       if (!bboxOverlap(zb, bbox(ofp))) continue;
       if (overlapArea(z, ofp) > EPS_AREA * 10) out.push(issue('error', 'service-blocked', `${nm}: подход перекрыт предметом «${nameOf(o)}»`, [it.id, o.id]));
     }
-    for (const d of ctx.doors) if (overlapArea(z, d.swing) > polyArea(z) * 0.3) out.push(issue('warning', 'service-door', `${nm}: дверь открывается в зону перед фасадом`, [it.id]));
+    for (const d of ctx.doors) if (d.swings.reduce((sum, s) => sum + overlapArea(z, s), 0) > polyArea(z) * 0.3) out.push(issue('warning', 'service-door', `${nm}: дверь открывается в зону перед фасадом`, [it.id]));
   }
 
   // Симметрично: корпус этого предмета не должен занимать зоны обслуживания других.
@@ -146,7 +148,7 @@ export interface ValidateOptions {
 }
 
 /** Полная проверка варианта. */
-export function validate(g: PlanGeometry, items: FurnitureItem[], rules: Rules, brief: Pick<Brief, 'bedAccessBothSides'>, opts: ValidateOptions = {}): ValidationResult {
+export function validate(g: PlanGeometry, items: FurnitureItem[], rules: Rules, brief: Pick<Brief, 'bedAccessBothSides'> & Partial<Brief>, opts: ValidateOptions = {}): ValidationResult {
   const ctx = planContext(g, rules);
   const issues: Issue[] = [];
   if (opts.expectedHash && opts.expectedHash !== ctx.hash)
@@ -179,7 +181,7 @@ export function validate(g: PlanGeometry, items: FurnitureItem[], rules: Rules, 
 
   // Проходимость.
   const reach = reachability(ctx, items, rules);
-  issues.push(...reach.issues);
+  issues.push(...reach.issues, ...requirementIssues(g, items, brief));
   return { issues: dedupe(issues), reachableRooms: reach.reachableRooms, unreachableRooms: reach.unreachableRooms };
 }
 
@@ -204,7 +206,11 @@ export function baseGrid(ctx: PlanContext, step: number): Grid {
   const b = ctx.bounds;
   const grid = new Grid({ minX: b.minX - 500, minY: b.minY - 500, maxX: b.maxX + 500, maxY: b.maxY + 500 }, step);
   for (const r of ctx.rooms) grid.paint(r.room.polygon, 0);
-  for (const d of ctx.doors) grid.paint(d.rect, 0);
+  // На скане (стены не нарисованы) между контурами соседних помещений лежит стена 200–500 мм,
+  // а проём распознан тонкой линией: расширяем его поперёк стены, чтобы он соединял помещения.
+  const bridge = usesRoomWalls(ctx.g) ? 600 : 0;
+  for (const d of ctx.doors) grid.paint(bridge ? segmentRect(d.o.a, d.o.b, d.o.thickness + bridge) : d.rect, 0);
+  if (ctx.g.walls.length) grid.paintGeom(wallsGeom(ctx.g), 1);
   for (const f of ctx.fixed) grid.paint(f.poly, 1);
   m.set(step, grid);
   return grid;
@@ -230,7 +236,11 @@ export function reachability(ctx: PlanContext, items: FurnitureItem[], rules: Ru
   }
   for (const r of ctx.rooms) {
     if (anyCellIn(grid, passage, r.room.polygon)) reachableRooms.push(r.room.id);
-    else {
+    else if (r.room.type === 'balcony') {
+      // Выход на балкон на сканах обычно распознаётся как окно; мебель там не ставится.
+      unreachableRooms.push(r.room.id);
+      issues.push(issue('warning', 'room-unreachable', `Выход на «${r.room.name}» не отмечен — проверьте дверь на балкон`));
+    } else {
       unreachableRooms.push(r.room.id);
       const blockers = items.filter((it) => it.roomId === r.room.id || nearDoorOf(ctx, it, r.room.polygon)).map((i) => i.id);
       issues.push(issue('error', 'room-unreachable', `Нет прохода ${rules.passageMin} мм в помещение «${r.room.name}»`, blockers));

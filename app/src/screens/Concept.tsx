@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react';
 import type { ConceptReference } from '../model/types';
 import { uid } from '../model/defaults';
+import { safeSourceUrl } from '../storage/validate';
 import { useStore } from '../state/store';
 import { PlanView, planBounds } from '../plan/PlanView';
+import { ReferenceImage } from '../plan/ReferenceImage';
+import { ScenePanel } from '../scene/ScenePanel';
+import { CLIENT_GOALS, STYLE_PRESETS, applyStyle, alternatePalette, randomStyleIndex, rationaleFor } from '../concept/presets';
 
 export function ConceptScreen({ next }: { next: () => void }) {
   const { project, update } = useStore();
@@ -10,6 +14,13 @@ export function ConceptScreen({ next }: { next: () => void }) {
   const v = project.variants.find((x) => x.id === project.selectedVariantId);
   const set = (p: Partial<typeof c>) => update((x) => ({ ...x, concept: { ...x.concept, ...p } }));
   const [newRef, setNewRef] = useState({ caption: '', sourceName: '', kind: 'reference' as ConceptReference['kind'] });
+
+  // Удаляем только три старых встроенных фото-заглушки. Собственные референсы сохраняются.
+  useEffect(() => {
+    const stock = ['photo-1600210492486-724fe5c67fb0', 'photo-1600607687920-4e2a09cf159d', 'photo-1618221195710-dd6b41faaea6'];
+    const isStock = (r: ConceptReference) => /^ref[123]$/.test(r.id) && stock.some(id => r.url.startsWith(`https://images.unsplash.com/${id}?`));
+    if (c.references.some(isStock)) update(p => ({ ...p, concept: { ...p.concept, references: p.concept.references.filter(r => !isStock(r)) } }));
+  }, [c.references, update]);
 
   // Вставка изображения из буфера обмена (Ctrl+V) — как референс.
   useEffect(() => {
@@ -27,9 +38,11 @@ export function ConceptScreen({ next }: { next: () => void }) {
 
   const addImage = (f: File | undefined, over?: { caption: string; sourceName: string }) => {
     if (!f) return;
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(f.type)) { alert('Нужен PNG, JPEG или WebP.'); return; }
     if (f.size > 3 * 1024 * 1024) { alert('Изображение больше 3 МБ — уменьшите его.'); return; }
     const r = new FileReader();
-    r.onload = () => set({ references: [...c.references, { id: uid('ref'), url: String(r.result), caption: over?.caption ?? (newRef.caption || f.name), sourceName: over?.sourceName ?? (newRef.sourceName || 'не указан'), sourceUrl: '', kind: newRef.kind }] });
+    r.onload = () => update(p => p.concept.references.length >= 4 ? p : { ...p, concept: { ...p.concept, references: [...p.concept.references, { id: uid('ref'), url: String(r.result), caption: over?.caption ?? (newRef.caption || f.name), sourceName: over?.sourceName ?? (newRef.sourceName || 'не указан'), sourceUrl: '', kind: newRef.kind }] } });
+    r.onerror = () => alert('Не удалось прочитать изображение.');
     r.readAsDataURL(f);
   };
 
@@ -37,10 +50,24 @@ export function ConceptScreen({ next }: { next: () => void }) {
     <div className="view">
       <div className="eyebrow">Шаг 6 · образ интерьера</div>
       <h1 className="heading">Мини-концепция</h1>
-      <p className="lead">Палитра, материалы и 2–4 изображения. Чужие интерьеры подписываются как «референс» с источником — это настроение, а не визуализация этой квартиры.</p>
+      <p className="lead">Объёмная схема квартиры, палитра и материалы. Сохраните ракурсы 3D для клиента или добавьте собственные референсы.</p>
+      <ScenePanel />
       <div className="grid2">
         <section className="card">
-          <label className="field">Стиль<input value={c.styleName} onChange={(e) => set({ styleName: e.target.value })} /></label>
+          <h3>Задачи клиента</h3>
+          <div className="actions" style={{ marginTop: 8 }}>{CLIENT_GOALS.map(goal => <label key={goal.id} className="check-inline"><input type="checkbox" checked={(c.clientGoals ?? []).includes(goal.id)} onChange={e => {
+            const clientGoals = e.target.checked ? [...(c.clientGoals ?? []), goal.id] : (c.clientGoals ?? []).filter(id => id !== goal.id);
+            set({ clientGoals, rationale: rationaleFor(STYLE_PRESETS.find(p => p.styleName === c.styleName)?.rationale ?? STYLE_PRESETS[0].rationale, clientGoals) });
+          }} />{goal.name}</label>)}</div>
+          <button className="btn secondary sm" onClick={() => {
+            const goals = c.clientGoals ?? []; const index = goals.includes('care') || goals.includes('family') ? 2 : goals.includes('space') || goals.includes('light') ? 1 : goals.includes('budget') ? 3 : goals.includes('cozy') ? 4 : 0;
+            set(applyStyle(c, index));
+          }}>Подобрать под задачи клиента</button>
+          <label className="field" style={{ marginTop: 16 }}>Готовый стиль<select aria-label="Готовый стиль" value={STYLE_PRESETS.findIndex(p => p.styleName === c.styleName)} onChange={e => set(applyStyle(c, Number(e.target.value)))}>
+            <option value={-1} disabled>Свой стиль</option>{STYLE_PRESETS.map((p, i) => <option key={p.styleName} value={i}>{p.styleName}</option>)}
+          </select></label>
+          <div className="actions" style={{ marginTop: 10 }}><button className="btn secondary sm" onClick={() => set(applyStyle(c, randomStyleIndex(c.styleName)))}>Случайный стиль</button><button className="btn secondary sm" onClick={() => set({ palette: alternatePalette(c) })}>Другая сочетающаяся палитра</button></div>
+          <label className="field" style={{ marginTop: 12 }}>Название стиля<input value={c.styleName} onChange={(e) => set({ styleName: e.target.value })} /></label>
           <h3 style={{ marginTop: 16 }}>Палитра</h3>
           <div className="palette">
             {c.palette.map((s, i) => (
@@ -50,15 +77,15 @@ export function ConceptScreen({ next }: { next: () => void }) {
               </div>
             ))}
           </div>
-          <h3 style={{ marginTop: 16 }}>Материалы (3–5)</h3>
+          <h3 style={{ marginTop: 16 }}>Материалы (3–5)</h3><datalist id="material-suggestions">{[...new Set(STYLE_PRESETS.flatMap(p => p.materials))].map(m => <option key={m} value={m} />)}</datalist>
           {c.materials.map((m, i) => (
             <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-              <input value={m} onChange={(e) => set({ materials: c.materials.map((x, j) => (j === i ? e.target.value : x)) })} />
+              <input list="material-suggestions" aria-label={`Материал ${i + 1}`} value={m} onChange={(e) => set({ materials: c.materials.map((x, j) => (j === i ? e.target.value : x)) })} />
               <button className="btn ghost sm" onClick={() => set({ materials: c.materials.filter((_, j) => j !== i) })} disabled={c.materials.length <= 3} aria-label="Убрать материал">✕</button>
             </div>
           ))}
           {c.materials.length < 5 && <button className="btn secondary sm" onClick={() => set({ materials: [...c.materials, ''] })}>Добавить материал</button>}
-          <label className="field" style={{ marginTop: 14 }}>Обоснование<textarea value={c.rationale} onChange={(e) => set({ rationale: e.target.value })} /></label>
+          <label className="field" style={{ marginTop: 14 }}>Обоснование<textarea aria-label="Обоснование" value={c.rationale} onChange={(e) => set({ rationale: e.target.value })} /></label>
         </section>
         <section className="card">
           <h3>Выбранный вариант</h3>
@@ -66,15 +93,15 @@ export function ConceptScreen({ next }: { next: () => void }) {
         </section>
       </div>
       <section className="card" style={{ marginTop: 18 }}>
-        <h2>Изображения ({c.references.length} из 2–4)</h2>
+        <h2>Изображения ({c.references.length} из 4)</h2>
         <div className="refs">
           {c.references.map((r) => (
             <div className="ref" key={r.id}>
-              <img src={r.url} alt={r.caption} loading="lazy" />
+              <ReferenceImage url={r.url} caption={r.caption} />
               <span className="tag">{r.kind === 'reference' ? 'Референс' : 'Иллюстрация'}</span>
               <div className="cap">
                 <input value={r.caption} onChange={(e) => set({ references: c.references.map((x) => (x.id === r.id ? { ...x, caption: e.target.value } : x)) })} />
-                <div className="muted" style={{ marginTop: 4 }}>Источник: {r.sourceUrl ? <a href={r.sourceUrl} target="_blank" rel="noreferrer">{r.sourceName}</a> : r.sourceName}</div>
+                <div className="muted" style={{ marginTop: 4 }}>Источник: {r.sourceUrl && safeSourceUrl(r.sourceUrl) ? <a href={r.sourceUrl} target="_blank" rel="noreferrer">{r.sourceName}</a> : r.sourceName}</div>
                 <button className="btn ghost sm" style={{ marginTop: 6 }} onClick={() => set({ references: c.references.filter((x) => x.id !== r.id) })}>Убрать</button>
               </div>
             </div>
@@ -88,7 +115,7 @@ export function ConceptScreen({ next }: { next: () => void }) {
             <label className="btn secondary" style={{ alignSelf: 'end', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>Загрузить изображение<input type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => addImage(e.target.files?.[0])} /></label>
           </div>
         )}
-        {c.references.length < 2 && <div className="notice">Добавьте хотя бы два изображения.</div>}
+        {!c.references.length && <div className="notice">Сохраните ракурс 3D или добавьте изображение.</div>}
         <p className="muted small">Картинку можно вставить из буфера обмена: Ctrl+V.</p>
       </section>
       <div className="actions"><button className="btn" onClick={next} disabled={!v}>К странице клиента</button></div>

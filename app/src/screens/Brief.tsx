@@ -1,4 +1,6 @@
 import type { Brief } from '../model/types';
+import { RequirementsEditor } from '../brief/RequirementsEditor';
+import { layoutNeeds } from '../brief/requirements';
 import { useStore } from '../state/store';
 
 export function BriefScreen({ next }: { next: () => void }) {
@@ -25,9 +27,10 @@ export function BriefScreen({ next }: { next: () => void }) {
           {num('adults', 'Взрослых', 1, 8)}
           {num('children', 'Детей', 0, 6)}
           {text('childrenAges', 'Возраст детей')}
-          <label className="check-inline wide"><input type="checkbox" checked={b.workFromHome} onChange={(e) => set('workFromHome', e.target.checked)} />Кто-то работает из дома — нужно рабочее место</label>
+          <label className="check-inline wide"><input type="checkbox" checked={b.workFromHome} onChange={(e) => update(p => ({ ...p, brief: { ...p.brief, workFromHome: e.target.checked, layoutNeeds: { ...layoutNeeds(p.brief), workplaces: e.target.checked ? Math.max(1, layoutNeeds(p.brief).workplaces) : 0 } } }))} />Кто-то работает из дома — нужно рабочее место</label>
           {text('priorities', 'Приоритеты', true, 'Например: больше хранения, светлая гостиная, место для гостей')}
         </div>
+        <RequirementsEditor brief={b} onChange={needs => update(p => ({ ...p, brief: { ...p.brief, layoutNeeds: needs, workFromHome: needs.workplaces > 0 } }))} />
         <details>
           <summary>Подробнее</summary>
           <div className="fields">

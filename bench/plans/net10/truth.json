@@ -1,0 +1,17 @@
+{
+ "source": "открытые источники (архив пользователя, BTI_plan_10.jpg)",
+ "style": "дизайн-обмер с размерами, обрезан справа",
+ "inputAreaM2": null,
+ "rooms": [
+  9.69,
+  11.46,
+  1.02,
+  2.13,
+  2.81,
+  4.75
+ ],
+ "roomsComplete": false,
+ "doors": null,
+ "windows": null,
+ "entrance": true
+}

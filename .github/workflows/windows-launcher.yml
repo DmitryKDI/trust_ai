@@ -1,0 +1,28 @@
+name: Windows launcher
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/festive-turing-m7na3z]
+    paths:
+      - '*.bat'
+      - 'scripts/*planner.ps1'
+      - 'scripts/test-windows-launcher.ps1'
+      - '.github/workflows/windows-launcher.yml'
+      - 'app/package*.json'
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check install, repair, repeat launch and actual server
+        shell: powershell
+        run: ./scripts/test-windows-launcher.ps1
+      - name: Show npm diagnostic on failure
+        if: failure()
+        shell: powershell
+        run: |
+          $log = Get-ChildItem 'C:/npm/cache/_logs' -Filter '*debug*' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if ($log) { Get-Content -LiteralPath $log.FullName -Tail 80 }

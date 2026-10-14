@@ -1,5 +1,6 @@
 import { useStore } from '../state/store';
 import { exportProject } from '../storage/db';
+import { isDesktop } from '../desktop';
 
 export function ProjectScreen({ next }: { next: () => void }) {
   const { project, update } = useStore();
@@ -10,7 +11,7 @@ export function ProjectScreen({ next }: { next: () => void }) {
     a.href = url;
     a.download = `${project.alias || 'project'}.trust-plan.json`;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
   return (
     <div className="view">
@@ -28,7 +29,7 @@ export function ProjectScreen({ next }: { next: () => void }) {
           <button className="btn" onClick={next}>К загрузке плана</button>
           <button className="btn secondary" onClick={backup}>Резервная копия (JSON)</button>
         </div>
-        <div className="notice">Проект сохраняется в этом браузере автоматически. Резервная копия содержит исходные файлы — не пересылайте её третьим лицам.</div>
+        <div className="notice">Проект сохраняется {isDesktop ? 'на этом компьютере' : 'в этом браузере'} автоматически. Резервная копия содержит исходные файлы — не пересылайте её третьим лицам.</div>
       </section>
     </div>
   );

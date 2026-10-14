@@ -1,12 +1,12 @@
 import { useStore } from '../state/store';
-import { RULE_DEFS, type RuleKey } from '../rules/rules';
+import { RULE_DEFS, validRuleValue, type RuleKey } from '../rules/rules';
 
 export function RulesModal({ onClose }: { onClose: () => void }) {
   const { project, update, rules } = useStore();
   const set = (k: RuleKey, v: string) => update((p) => {
     const o = { ...p.ruleOverrides };
     const n = Number(v);
-    if (v === '' || !Number.isFinite(n) || n === RULE_DEFS[k].value) delete o[k];
+    if (v === '' || !validRuleValue(k, n) || n === RULE_DEFS[k].value) delete o[k];
     else o[k] = n;
     return { ...p, ruleOverrides: o };
   });

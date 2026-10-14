@@ -1,0 +1,98 @@
+diff --git a/app/src/quick/index.ts b/app/src/quick/index.ts
+index 39add9e..fdd3d61 100644
+--- a/app/src/quick/index.ts
++++ b/app/src/quick/index.ts
+@@ -587,33 +587,84 @@ function quickPlanCore(inp: QuickInput): QuickResult {
+   // цвета пола — отдельная зона: тонкие линии и надписи внутри (до ~6 см) пятно не режут,
+   // замкнутые контуры внутри (сантехника, мебель, до 2 м²) заливаются. Белые помещения
+   // (санузел без заливки) и улица остаются от разбиения выше.
+-  if (tinted) {
++  // Цвет — первым на любом плане с цветной заливкой (на чёрно-белом зон по цвету просто нет).
++  {
+     const kc = Math.max(3, Math.round(0.06 * pxPerM)) | 1;
+-    const m2 = pxPerM * pxPerM, minZone = 0.8 * m2, mc2 = 2.5 * pxPerM;
++    const m2 = pxPerM * pxPerM, mc2 = 2.5 * pxPerM;
+     const zone = new Int32Array(n);
+     let nextId = Math.max(0, ...roomIds, ...exteriorIds) + 1;
+     for (let i = 0; i < n; i++) if (labels[i] >= nextId) nextId = labels[i] + 1;
++    // Цвета зон берём прямо с картинки, без проверок «пол или стена»: каждый заметный светлый
++    // цветной тон (пик гистограммы, шаг 8) — свой цвет; пиксель — к ближайшему тону (до 14).
++    // Заливка стен отсекается ниже формой пятна: стена — узкая полоса, зона — широкая.
++    const zc = new Int32Array(n);
++    {
++      const hist = new Map<number, number>();
++      for (let i = 0, p = 0; i < n; i++, p += 4) {
++        const r = rgba[p], g = rgba[p + 1], b = rgba[p + 2];
++        if (0.299 * r + 0.587 * g + 0.114 * b < 120 || Math.max(r, g, b) - Math.min(r, g, b) < 12) continue;
++        if (Math.max(Math.abs(r - P[0]), Math.abs(g - P[1]), Math.abs(b - P[2])) <= 32) continue; // бумага (желтоватый скан)
++        const k = ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
++        hist.set(k, (hist.get(k) ?? 0) + 1);
++      }
++      const tones: number[][] = [];
++      for (const [k, c] of [...hist].sort((x, y) => y[1] - x[1])) {
++        if (c < Math.max(150, 0.002 * n)) break;
++        const q = [((k >> 10) << 3) + 4, (((k >> 5) & 31) << 3) + 4, ((k & 31) << 3) + 4];
++        if (tones.every((z) => Math.hypot(z[0] - q[0], z[1] - q[1], z[2] - q[2]) >= 10)) tones.push(q);
++      }
++      for (let i = 0, p = 0; i < n; i++, p += 4) {
++        let best = 0, bd = 14;
++        for (let t = 0; t < tones.length; t++) {
++          const z = tones[t], d = Math.hypot(z[0] - rgba[p], z[1] - rgba[p + 1], z[2] - rgba[p + 2]);
++          if (d < bd) { bd = d; best = t + 1; }
++        }
++        zc[i] = best;
++      }
++    }
+     let nCls = 0;
+-    for (let i = 0; i < n; i++) if (cls[i] > nCls) nCls = cls[i];
++    for (let i = 0; i < n; i++) if (zc[i] > nCls) nCls = zc[i];
+     const zoneIds: number[] = [];
++    const toneOf = new Map<number, number>();
++    const wideK = Math.max(3, Math.round(0.5 * pxPerM));
+     for (let c = 1; c <= nCls; c++) {
+       const m = newBin(w, h);
+-      for (let i = 0; i < n; i++) if (cls[i] === c) m.d[i] = 1;
+-      const { labels: cl, comps: cc } = components(erode(dilate(m, kc), kc));
++      for (let i = 0; i < n; i++) if (zc[i] === c) m.d[i] = 1;
++      const closed = erode(dilate(m, kc), kc);
++      // Широкая часть пятна (шире ~0,5 м): у заливки стен её нет.
++      const wide = openBin(closed, wideK);
++      const { labels: cl, comps: cc } = components(closed);
++      const wideN = new Int32Array(cc.length + 1);
++      for (let i = 0; i < n; i++) if (cl[i] && wide.d[i]) wideN[cl[i]]++;
+       const ids = new Int32Array(cc.length + 1);
+       for (const comp of cc) {
+-        if (comp.area < minZone || comp.x0 === 0 || comp.y0 === 0 || comp.x1 === w - 1 || comp.y1 === h - 1) continue;
++        if (comp.area < 0.5 * m2 || wideN[comp.id] < 0.4 * comp.area || comp.x0 === 0 || comp.y0 === 0 || comp.x1 === w - 1 || comp.y1 === h - 1) continue;
+         if (core && (comp.x1 < core.x0 - mc2 || comp.x0 > core.x1 + mc2 || comp.y1 < core.y0 - mc2 || comp.y0 > core.y1 + mc2)) continue;
+         ids[comp.id] = nextId++;
+         zoneIds.push(ids[comp.id]);
+       }
+       for (let i = 0; i < n; i++) if (cl[i] && ids[cl[i]] && !zone[i]) zone[i] = ids[cl[i]];
++      for (const comp of cc) if (ids[comp.id]) toneOf.set(ids[comp.id], c);
++    }
++    // План БТИ с цветными зонами (санузел одним цветом, каждая комната своим): зона = цвет, и всё.
++    // Если один цвет занимает больше половины квартиры (вся квартира залита одним тоном, другим —
++    // только кухня или балкон), цвет комнаты не разделяет — тогда внутри цвета делим по стенам.
++    const toneArea = new Map<number, number>();
++    let zoneTotal = 0;
++    for (let i = 0; i < n; i++) if (zone[i] && labels[i] > 0 && !exteriorIds.has(labels[i])) { const t = toneOf.get(zone[i])!; toneArea.set(t, (toneArea.get(t) ?? 0) + 1); zoneTotal++; }
++    // Цветной план — цветные пятна покрывают больше половины квартиры (на техплане розовая
++    // заливка стен и подписи — малая доля, такой план делим по линиям).
++    let aptPx = 0;
++    for (let i = 0; i < n; i++) if (labels[i] > 0 && roomIds.includes(labels[i])) aptPx++;
++    const coloredPlan = zoneTotal >= 0.5 * aptPx;
++    (globalThis as any).__cp?.push([zoneTotal, aptPx, toneArea.size, zoneIds.length]); // DBG
++    if (!coloredPlan) zoneIds.length = 0;
++    const zoned = coloredPlan && toneArea.size >= 2 && Math.max(...toneArea.values()) <= 0.5 * zoneTotal;
++    if (!zoned) {
+       // Внутри одного цвета квартиру всё равно делят стены (на планировке «всё жёлтое» цвет
+       // одинаков у всех комнат): пятно, в котором лежат несколько найденных по стенам помещений,
+       // делим между ними; пятно без своего помещения — новая зона.
+-      for (const comp of cc) {
+-        const id = ids[comp.id];
+-        if (!id) continue;
++      for (const id of [...zoneIds]) {
+         const cnt = new Map<number, number>();
+         for (let i = 0; i < n; i++) if (zone[i] === id && roomIds.includes(labels[i])) cnt.set(labels[i], (cnt.get(labels[i]) ?? 0) + 1);
+         const keep = [...cnt].filter(([, k]) => k >= 0.15 * m2).map(([l]) => l);

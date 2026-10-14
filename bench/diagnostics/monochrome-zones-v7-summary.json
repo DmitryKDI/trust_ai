@@ -1,0 +1,311 @@
+[
+  {
+    "id": "ex1",
+    "zones": 8,
+    "doors": 8,
+    "windows": 0,
+    "ms": 765,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "ex2",
+    "zones": 9,
+    "doors": 9,
+    "windows": 5,
+    "ms": 824,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "ex3",
+    "zones": 7,
+    "doors": 6,
+    "windows": 0,
+    "ms": 487,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "ex4",
+    "zones": 10,
+    "doors": 6,
+    "windows": 3,
+    "ms": 2029,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net01",
+    "zones": 13,
+    "doors": 15,
+    "windows": 6,
+    "ms": 5813,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net02",
+    "zones": 6,
+    "doors": 6,
+    "windows": 5,
+    "ms": 5642,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net03",
+    "zones": 10,
+    "doors": 11,
+    "windows": 5,
+    "ms": 5959,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net04",
+    "zones": 5,
+    "doors": 6,
+    "windows": 5,
+    "ms": 2820,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net05",
+    "zones": 6,
+    "doors": 6,
+    "windows": 0,
+    "ms": 4315,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net06",
+    "zones": 7,
+    "doors": 7,
+    "windows": 2,
+    "ms": 2058,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net08",
+    "zones": 8,
+    "doors": 10,
+    "windows": 7,
+    "ms": 3278,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net09",
+    "zones": 8,
+    "doors": 9,
+    "windows": 3,
+    "ms": 3097,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net10",
+    "zones": 8,
+    "doors": 6,
+    "windows": 8,
+    "ms": 2723,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net11",
+    "zones": 6,
+    "doors": 7,
+    "windows": 7,
+    "ms": 3256,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net12",
+    "zones": 5,
+    "doors": 6,
+    "windows": 0,
+    "ms": 5594,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net14",
+    "zones": 6,
+    "doors": 3,
+    "windows": 2,
+    "ms": 1960,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net15",
+    "zones": 7,
+    "doors": 8,
+    "windows": 0,
+    "ms": 3012,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net16",
+    "zones": 9,
+    "doors": 8,
+    "windows": 3,
+    "ms": 1241,
+    "overlaps": [
+      {
+        "a": 6,
+        "b": 9,
+        "areaM2": 1.457193
+      }
+    ],
+    "invalidAreas": []
+  },
+  {
+    "id": "net17",
+    "zones": 7,
+    "doors": 9,
+    "windows": 4,
+    "ms": 4229,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net18",
+    "zones": 5,
+    "doors": 5,
+    "windows": 2,
+    "ms": 1319,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net19",
+    "zones": 11,
+    "doors": 9,
+    "windows": 4,
+    "ms": 1847,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net20",
+    "zones": 8,
+    "doors": 12,
+    "windows": 6,
+    "ms": 4168,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net21",
+    "zones": 10,
+    "doors": 11,
+    "windows": 7,
+    "ms": 2601,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net22",
+    "zones": 5,
+    "doors": 5,
+    "windows": 2,
+    "ms": 1214,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net23",
+    "zones": 11,
+    "doors": 7,
+    "windows": 8,
+    "ms": 4085,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net24",
+    "zones": 8,
+    "doors": 9,
+    "windows": 8,
+    "ms": 4294,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net25",
+    "zones": 5,
+    "doors": 4,
+    "windows": 7,
+    "ms": 2475,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net26",
+    "zones": 7,
+    "doors": 9,
+    "windows": 2,
+    "ms": 3764,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net27",
+    "zones": 7,
+    "doors": 6,
+    "windows": 0,
+    "ms": 3140,
+    "overlaps": [
+      {
+        "a": 4,
+        "b": 7,
+        "areaM2": 2.005226
+      }
+    ],
+    "invalidAreas": []
+  },
+  {
+    "id": "net28",
+    "zones": 7,
+    "doors": 7,
+    "windows": 1,
+    "ms": 2729,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net29",
+    "zones": 8,
+    "doors": 8,
+    "windows": 3,
+    "ms": 3718,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net30",
+    "zones": 6,
+    "doors": 8,
+    "windows": 1,
+    "ms": 4580,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "syn-black",
+    "zones": 4,
+    "doors": 4,
+    "windows": 3,
+    "ms": 6439,
+    "overlaps": [],
+    "invalidAreas": []
+  }
+]

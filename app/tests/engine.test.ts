@@ -61,3 +61,13 @@ describe('движок расстановки', () => {
     expect(r.incomplete).toBe(false);
   });
 });
+
+it('пересборка с seed меняет расстановку, сохраняя проверки и сценарий', () => {
+  const g = twoRoom();
+  const first = runEngine({ g, brief, rules, scenario: 'space', seed: 123 });
+  const second = runEngine({ g, brief, rules, scenario: 'space', seed: 456, avoid: first.placements });
+  const signature = (items: typeof first.items) => items.map(i => `${i.type}:${i.x}:${i.y}:${i.rot}:${i.w}`).sort().join('|');
+  expect(signature(first.items)).not.toBe(signature(second.items));
+  expect(second.scenario.key).toBe('space');
+  expect(validate(g, second.items, rules, brief).issues.filter(i => i.severity === 'error')).toEqual([]);
+});

@@ -6,18 +6,24 @@ import { renderImage, renderPdfPage, type RenderedPage } from '../pdf/load';
 
 const cache = new Map<string, Promise<RenderedPage>>();
 
+export function clearSourceCache() {
+  for (const entry of cache.values()) void entry.then(page => { if (page.imageUrl.startsWith('blob:')) URL.revokeObjectURL(page.imageUrl); }).catch(() => {});
+  cache.clear();
+}
+
 export function loadPage(doc: SourceDocument, page: number, withVectors = true): Promise<RenderedPage> {
   const key = `${doc.id}:${page}:${withVectors}`;
   let p = cache.get(key);
   if (!p) {
     p = (async () => {
       const blob = await getFile(doc.id);
-      if (!blob) throw new Error('Файл исходника не найден в браузере — загрузите его заново');
+      if (!blob) throw new Error('Файл исходника не найден в хранилище — загрузите его заново');
       if (doc.mime === 'application/pdf') return renderPdfPage(await blob.arrayBuffer(), page, 3, withVectors);
       return renderImage(blob);
     })();
     cache.set(key, p);
-    p.catch(() => cache.delete(key));
+    const entry = p;
+    p.catch(() => { if (cache.get(key) === entry) cache.delete(key); });
   }
   return p;
 }

@@ -1,0 +1,13 @@
+{
+ "source": "открытые источники (архив пользователя, BTI_plan_25.jpg)",
+ "style": "типовой проект, штриховка стен (площади по размерам)",
+ "inputAreaM2": null,
+ "rooms": [
+  9.9,
+  13.25
+ ],
+ "roomsComplete": false,
+ "doors": null,
+ "windows": null,
+ "entrance": true
+}

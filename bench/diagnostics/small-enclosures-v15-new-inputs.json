@@ -1,0 +1,20 @@
+[
+  {
+    "id": "net07",
+    "zones": 5,
+    "doors": 5,
+    "windows": 0,
+    "ms": 2469,
+    "overlaps": [],
+    "invalidAreas": []
+  },
+  {
+    "id": "net13",
+    "zones": 8,
+    "doors": 8,
+    "windows": 14,
+    "ms": 3662,
+    "overlaps": [],
+    "invalidAreas": []
+  }
+]

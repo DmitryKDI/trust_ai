@@ -1,0 +1,59 @@
+{
+  "sourceCommit": "1ea8505e643d43c884b5e948e7e857341a527c1d",
+  "recognitionScoreRaw": 0.8691096089491812,
+  "savedThreshold": 0.869,
+  "examples": 33,
+  "recognitionDurationMs": 79116,
+  "originalBenchDurationSeconds": 253.71,
+  "originalUnit": {
+    "passed": 41,
+    "skipped": 25
+  },
+  "overlappingPlans": 17,
+  "overlappingPairs": 44,
+  "seed": "none; geometry IDs use time/randomness and are renumbered in diagnostic export",
+  "node": "24.19.0",
+  "npm": "11.9.0",
+  "dependencies": {
+    "name": "trust-remont-planner",
+    "private": true,
+    "version": "0.1.0",
+    "type": "module",
+    "scripts": {
+      "dev": "vite",
+      "build": "tsc -b && vite build",
+      "preview": "vite preview",
+      "test": "vitest run",
+      "test:watch": "vitest",
+      "e2e": "playwright test",
+      "typecheck": "tsc -b --noEmit",
+      "bench": "vitest run tests/bench.test.ts"
+    },
+    "dependencies": {
+      "pdfjs-dist": "^5.7.284",
+      "polygon-clipping": "^0.15.7",
+      "react": "^19.3.0",
+      "react-dom": "^19.3.0"
+    },
+    "devDependencies": {
+      "@playwright/test": "^1.63.0",
+      "@types/node": "^24.19.0",
+      "@types/pngjs": "^6.0.5",
+      "@types/react": "^19.3.0",
+      "@types/react-dom": "^19.3.0",
+      "@vitejs/plugin-react": "^6.1.1",
+      "fake-indexeddb": "^6.2.5",
+      "jpeg-js": "^0.4.4",
+      "pngjs": "^7.0.0",
+      "typescript": "^5.9.3",
+      "vite": "^8.3.1",
+      "vitest": "^5.0.3"
+    }
+  },
+  "limitations": [
+    "No approved geometric ground truth: IoU, boundary errors, topology accuracy and type accuracy not measured",
+    "Vector PDF control fixtures not added",
+    "Memory and target-phone budgets not measured",
+    "Color patch trial not accepted; rectangle patch not evaluated"
+  ]
+}

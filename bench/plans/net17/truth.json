@@ -1,0 +1,11 @@
+{
+ "source": "открытые источники (архив пользователя, BTI_plan_17.jpg)",
+ "style": "цветная планировка, однушка, без площадей",
+ "inputAreaM2": null,
+ "rooms": [],
+ "roomsComplete": false,
+ "roomCount": 5,
+ "doors": null,
+ "windows": null,
+ "entrance": true
+}

@@ -1,0 +1,20 @@
+.scene-canvas { display: block; width: 100%; height: clamp(280px, 50vh, 560px); border-radius: 12px; background: #f4f0e9; touch-action: none; cursor: grab; }
+.scene-canvas:active { cursor: grabbing; }
+.scene-canvas:focus-visible { outline: 3px solid #997758; outline-offset: 2px; }
+.scene-toolbar { flex-wrap: wrap; gap: 8px; }
+.scene-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 12px; margin: 16px 0; }
+.scene-materials { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 12px; }
+.scene-catalog-card { padding: 12px; border: 1px solid #ded5ca; border-radius: 10px; overflow-wrap: anywhere; }
+.scene-catalog-chip { width: 100%; height: 48px; border-radius: 6px; margin-bottom: 8px; }
+@media print { .scene-view { display: none; } }
+.client-variants { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.client-variant { min-width: 0; border: 1px solid #ded3c8; padding: 14px; border-radius: 12px; }
+.client-variant h3 { margin: 8px 0; }
+.client-variant > svg { width: 100%; height: 220px; }
+.client-scene { position: relative; min-height: 220px; margin: 12px 0; }
+.client-scene img { width: 100%; height: 220px; object-fit: contain; background: #f5f0e8; }
+.client-scene-source { position: absolute; left: 0; top: 0; width: 100%; height: 220px; visibility: hidden; }
+@media (max-width: 1000px) { .client-variants { grid-template-columns: 1fr; } }
+@media print { .client-variants { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; } .client-variant { padding: 8px; break-inside: avoid; } .client-scene, .client-scene img { min-height: 130px; height: 130px; } .client-variant > svg { height: 130px; } }
+
+@media print { .client .palette { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }

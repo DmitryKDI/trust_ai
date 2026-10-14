@@ -37,6 +37,8 @@ export interface Opening extends Provenance {
   b: Pt;
   thickness: number;
   hinge: 'a' | 'b';
+  /** Число створок; старые проекты без поля — одна створка. */
+  leaves?: 1 | 2;
   swing: 1 | -1;
   isEntrance: boolean;
   /** Высота подоконника, мм; null — неизвестно. */
@@ -67,6 +69,9 @@ export interface Room extends Provenance {
   name: string;
   type: RoomType;
   polygon: Pt[];
+  /** Источник назначения отделен от источника контура. Старые проекты: undefined = предположение. */
+  typeSource?: 'manual' | 'learned';
+  typeBasis?: string;
 }
 
 /** Калибровка: две точки в единицах листа (pt для PDF, px для растра) и известный размер. */
@@ -85,6 +90,8 @@ export interface PlanGeometry {
   sourcePage: number | null;
   calibration: Calibration | null;
   walls: Wall[];
+  /** Скан: границы зон остаются основой стен при добавлении ручных перегородок. */
+  wallMode?: 'rooms' | 'explicit';
   openings: Opening[];
   fixed: FixedElement[];
   wetZones: WetZone[];
@@ -122,6 +129,7 @@ export interface Brief {
   bedAccessBothSides: boolean;
   diningSeats: number;
   preferShower: boolean;
+  layoutNeeds?: LayoutNeeds;
 }
 
 export type ScenarioKey = 'space' | 'storage' | 'family';
@@ -131,6 +139,17 @@ export type FurnitureType =
   | 'sofa' | 'armchair' | 'coffee-table' | 'tv-unit'
   | 'dining' | 'desk' | 'kitchen-run' | 'fridge'
   | 'bathtub' | 'shower' | 'toilet' | 'washbasin' | 'washer' | 'shoe-cabinet' | 'play-rug' | 'shelving';
+
+export interface FurnitureRequirement {
+  id: string; type: FurnitureType; count: number; roomType: RoomType | null;
+  /** Полный габарит предмета до поворота, мм. */
+  w?: number; d?: number;
+}
+export interface LayoutNeeds {
+  workplaces: number;
+  required: FurnitureRequirement[];
+  forbidden: FurnitureType[];
+}
 
 export type Rot = 0 | 90 | 180 | 270;
 
@@ -152,6 +171,7 @@ export interface FurnitureItem {
   roomId: string | null;
   ruleId: string | null;
   movedByManager: boolean;
+  locked?: boolean;
   modules?: KitchenModule[];
   seats?: number;
 }
@@ -171,6 +191,7 @@ export interface Variant {
   title: string;
   idea: string;
   geometryHash: string;
+  inputsHash?: string;
   items: FurnitureItem[];
   benefits: string[];
   compromises: string[];
@@ -192,11 +213,15 @@ export interface ConceptReference {
 }
 
 export interface Concept {
+  clientGoals?: string[];
   styleName: string;
   palette: { name: string; hex: string }[];
   materials: string[];
   references: ConceptReference[];
   rationale: string;
+  /** Настройки процедурной 3D-сцены. Отсутствуют у старых проектов. */
+  scene3d?: import('../scene/types').SceneSettings;
+  materialCatalog?: import('../scene/types').MaterialCatalog;
 }
 
 export interface ReviewDecision {

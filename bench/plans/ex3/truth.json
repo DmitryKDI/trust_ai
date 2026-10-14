@@ -1,0 +1,10 @@
+{
+  "source": "пример пользователя: поэтажный план квартиры, масштаб 1:200, план мелкий на листе",
+  "style": "двойные тонкие линии, очень низкое разрешение",
+  "inputAreaM2": null,
+  "rooms": [17.1, 10.1],
+  "roomsComplete": false,
+  "doors": null,
+  "windows": null,
+  "entrance": true
+}
