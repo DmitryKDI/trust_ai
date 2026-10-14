@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-const { assetPath, isAppUrl, isCompanyUrl, pdfName } = createRequire(import.meta.url)('../desktop/security.cjs');
+const { assetPath, isAppUrl, isAppPageUrl, isTrustedIpc, isLocalDownload, isCompanyUrl, pdfName } = createRequire(import.meta.url)('../desktop/security.cjs');
 
 describe('desktop boundary', () => {
   const root = path.resolve('dist');
@@ -23,5 +23,21 @@ describe('desktop boundary', () => {
     expect(pdfName('../../CON:<client>')).not.toMatch(/[<>:"/\\|?*\x00-\x1f]/);
     expect(pdfName(undefined)).toBe('Траст ремонт - концепция.pdf');
     expect(pdfName('А'.repeat(1000)).length).toBeLessThan(130);
+  });
+  it('only the actual main app page can invoke native actions', () => {
+    const frame = { url: 'trust://planner/' }, sender = { mainFrame: frame };
+    const window = { webContents: sender, isDestroyed: () => false };
+    expect(isTrustedIpc({ sender, senderFrame: frame }, window)).toBe(true);
+    expect(isTrustedIpc({ sender, senderFrame: { ...frame } }, window)).toBe(false);
+    expect(isTrustedIpc({ sender: { mainFrame: frame }, senderFrame: frame }, window)).toBe(false);
+    for (const url of ['trust://planner/assets/code.js', 'trust://planner/?evil=1', 'https://planner/', 'file:///secret', 'data:text/html,test']) {
+      frame.url = url; expect(isAppPageUrl(url)).toBe(false); expect(isTrustedIpc({ sender, senderFrame: frame }, window)).toBe(false);
+    }
+    expect(isTrustedIpc({ get senderFrame() { throw new Error('disposed'); } }, window)).toBe(false);
+    expect(isTrustedIpc({}, { ...window, isDestroyed: () => true })).toBe(false);
+  });
+  it('downloads are restricted to app-generated blobs', () => {
+    expect(isLocalDownload('blob:trust://planner/00000000-0000-0000-0000-000000000000')).toBe(true);
+    for (const url of ['blob:https://evil.test/file', 'blob:null/file', 'https://evil.test/file.exe', 'http://127.0.0.1/admin', 'file:///C:/secret', 'data:text/html,<script>', 'trust://planner/assets/a.js']) expect(isLocalDownload(url)).toBe(false);
   });
 });

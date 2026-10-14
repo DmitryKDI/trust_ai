@@ -4,6 +4,7 @@ import { uid } from '../model/defaults';
 import { safeSourceUrl } from '../storage/validate';
 import { useStore } from '../state/store';
 import { PlanView, planBounds } from '../plan/PlanView';
+import { ReferenceImage } from '../plan/ReferenceImage';
 import { ScenePanel } from '../scene/ScenePanel';
 import { CLIENT_GOALS, STYLE_PRESETS, applyStyle, alternatePalette, randomStyleIndex, rationaleFor } from '../concept/presets';
 
@@ -96,7 +97,7 @@ export function ConceptScreen({ next }: { next: () => void }) {
         <div className="refs">
           {c.references.map((r) => (
             <div className="ref" key={r.id}>
-              <img src={r.url} alt={r.caption} loading="lazy" />
+              <ReferenceImage url={r.url} caption={r.caption} />
               <span className="tag">{r.kind === 'reference' ? 'Референс' : 'Иллюстрация'}</span>
               <div className="cap">
                 <input value={r.caption} onChange={(e) => set({ references: c.references.map((x) => (x.id === r.id ? { ...x, caption: e.target.value } : x)) })} />

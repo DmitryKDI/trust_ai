@@ -48,3 +48,17 @@ test('local server refuses other origins and sibling repository files', async ({
   const blocked = await request.get('/@fs/' + process.cwd().replace(/\\/g, '/').replace(/\/app$/, '') + '/docs/TZ.md');
   expect(blocked.status()).toBe(403);
 });
+
+test('HTML in imported client data stays text; repeated imports preserve the original project', async ({ page }) => {
+  const p = newProject({ alias: 'Original project', city: '', manager: '', date: '' });
+  const importBackup = async () => page.locator('input[type=file]').setInputFiles({ name: 'probe.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ format: 'trust-planner-project', version: 1, project: p, files: {} })) });
+  await page.goto('/'); await importBackup(); await expect(page.getByRole('heading', { name: 'О проекте', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Все проекты', exact: true }).click();
+  p.alias = '<img src=x onerror="window.backupPwned=true">'; await importBackup();
+  await expect(page.getByRole('heading', { name: 'О проекте', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => (window as any).backupPwned)).toBeUndefined();
+  await page.getByRole('button', { name: 'Все проекты', exact: true }).click();
+  await expect(page.locator('.prow').filter({ hasText: 'Original project' })).toHaveCount(1);
+  await expect(page.locator('.prow').filter({ hasText: '(копия)' })).toHaveCount(1);
+  expect(await page.evaluate(() => (window as any).backupPwned)).toBeUndefined();
+});

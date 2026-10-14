@@ -55,6 +55,20 @@ it('a backup cannot overwrite files owned by another project', async () => {
   await expect(importProject(backup(other, { shared: { mime: 'image/png', base64: btoa('new') } }))).rejects.toThrow();
   expect(await (await getFile('shared'))!.text()).toBe('old'); expect(await getProject(other.id)).toBeUndefined();
 });
+it('a matching project id imports as a separate copy and remaps originals atomically', async () => {
+  const p = project();
+  p.documents = [{ id: 'owned', name: 'plan.png', mime: 'image/png', size: 3, pageCount: 1, role: 'plan', addedAt: p.createdAt }];
+  p.geometry.sourceDocumentId = 'owned';
+  await saveProject(p); await putFile('owned', new Blob(['old']));
+  const incoming = structuredClone(p); incoming.alias = 'Changed by backup';
+  const copy = await importProject(backup(incoming, { owned: { mime: 'image/png', base64: btoa('new') } }));
+  expect(copy.id).not.toBe(p.id); expect(copy.alias).toBe('Changed by backup (копия)');
+  expect(copy.geometry.sourceDocumentId).toBe(copy.documents[0].id);
+  expect(copy.documents[0].id).not.toBe('owned');
+  expect((await getProject(p.id))?.alias).toBe('audit');
+  expect(await (await getFile('owned'))!.text()).toBe('old');
+  expect(await (await getFile(copy.documents[0].id))!.text()).toBe('new');
+});
 it('rejects unsafe grid rules and huge allocations before allocating memory', () => {
   expect(resolveRules({ gridStep: 0, passageMin: -1, costRateMin: -50 }).gridStep).toBe(50);
   expect(() => new Grid({ minX: 0, minY: 0, maxX: 100, maxY: 100 }, 0)).toThrow();

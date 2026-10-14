@@ -1,3 +1,4 @@
+import { ReferenceImage } from '../plan/ReferenceImage';
 // Клиентская страница: до трёх актуальных проверенных вариантов, выбранный отмечен. Без исходных документов,
 // эталона, моделей, уверенностей и технических полей.
 import { useMemo, useState } from 'react';
@@ -120,7 +121,7 @@ export function ClientScreen({ back }: { back: () => void }) {
             <div className="refs" style={{ marginTop: 14 }}>
               {c.references.slice(0, 4).map((r) => (
                 <figure className="ref" key={r.id} style={{ margin: 0 }}>
-                  <img src={r.url} alt={r.caption} />
+                  <ReferenceImage url={r.url} caption={r.caption} />
                   <span className="tag">{r.kind === 'reference' ? 'Референс' : 'Иллюстрация'}</span>
                   <figcaption className="cap">{r.caption}<br /><span className="muted">Источник: {r.sourceName}</span></figcaption>
                 </figure>

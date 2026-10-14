@@ -2,7 +2,7 @@ const { app, BrowserWindow, Menu, dialog, ipcMain, protocol, session, shell } = 
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const { randomUUID } = require('node:crypto');
-const { MAIN_URL, CSP, isAppUrl, isCompanyUrl, assetPath, pdfName } = require('./security.cjs');
+const { MAIN_URL, CSP, isAppPageUrl, isTrustedIpc, isLocalDownload, isCompanyUrl, assetPath, pdfName } = require('./security.cjs');
 const { createUpdateController } = require('./updates.cjs');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'trust', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true, codeCache: true } }]);
@@ -15,7 +15,7 @@ if (!app.isPackaged && process.env.TRUST_DESKTOP_TEST_DATA) app.setPath('userDat
 const gotLock = app.requestSingleInstanceLock();
 let win, pendingClose, closing = false, allowClose = false, savingPdf = false, updateClosing = false;
 const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.wasm': 'application/wasm' };
-const trusted = event => win && event.sender === win.webContents && event.senderFrame === win.webContents.mainFrame && isAppUrl(event.senderFrame.url);
+const trusted = event => isTrustedIpc(event, win);
 async function saveBeforeExit() {
   if (!win || win.isDestroyed() || pendingClose) return false;
   const requestId = randomUUID();
@@ -38,13 +38,16 @@ else {
       if (!file || !['GET', 'HEAD'].includes(request.method)) return new Response('Not found', { status: 404 });
       try {
         const body = await fs.readFile(file);
-        return new Response(request.method === 'HEAD' ? null : body, { headers: { 'Content-Type': types[path.extname(file)] || 'application/octet-stream', 'Content-Security-Policy': CSP, 'X-Content-Type-Options': 'nosniff' } });
+        return new Response(request.method === 'HEAD' ? null : body, { headers: { 'Content-Type': types[path.extname(file)] || 'application/octet-stream', 'Content-Security-Policy': CSP, 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' } });
       } catch { return new Response('Not found', { status: 404 }); }
     });
     session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
     session.defaultSession.setPermissionCheckHandler(() => false);
+    session.defaultSession.setDevicePermissionHandler(() => false);
+    // Updater uses its own electron-updater session; app pages need no network.
+    session.defaultSession.webRequest.onBeforeRequest((details, callback) => callback({ cancel: /^(https?|wss?|ftp|file):/i.test(details.url) }));
     session.defaultSession.on('will-download', (_event, item, contents) => {
-      if (!win || contents !== win.webContents) { item.cancel(); return; }
+      if (!win || contents !== win.webContents || !isLocalDownload(item.getURL())) { item.cancel(); return; }
       item.setSaveDialogOptions({ title: 'Сохранить файл планировщика', defaultPath: path.join(app.getPath('downloads'), path.basename(item.getFilename())) });
     });
     win = new BrowserWindow({ width: 1440, height: 960, minWidth: 1024, minHeight: 700, show: false, backgroundColor: '#f4ece3', title: 'Траст ремонт — Планировщик', icon: path.join(__dirname, 'icon.png'),
@@ -53,8 +56,8 @@ else {
       if (isCompanyUrl(url)) void shell.openExternal('https://trustremont.ru/').catch(() => {});
       return { action: 'deny' };
     });
-    win.webContents.on('will-navigate', event => { if (!isAppUrl(event.url)) event.preventDefault(); });
-    win.webContents.on('will-frame-navigate', event => { if (!isAppUrl(event.url)) event.preventDefault(); });
+    win.webContents.on('will-navigate', event => { if (!isAppPageUrl(event.url)) event.preventDefault(); });
+    win.webContents.on('will-frame-navigate', event => { if (!isAppPageUrl(event.url)) event.preventDefault(); });
     win.webContents.on('will-attach-webview', event => event.preventDefault());
     win.webContents.on('will-prevent-unload', event => event.preventDefault()); // Native close handler below flushes autosave first.
     win.on('ready-to-show', () => win.show());

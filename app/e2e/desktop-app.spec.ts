@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { extractFile } from '@electron/asar';
+import { getCurrentFuseWire, FuseV1Options } from '@electron/fuses';
 
 const execute = promisify(execFile);
 
@@ -80,6 +81,67 @@ test('real packaged EXE: offline UI, safe renderer, import, three 3D views, nati
     expect((await app.windows()).length).toBe(1);
     expect(errors).toEqual([]);
   } finally { await close(app).catch(() => app.close()); }
+});
+
+test('packaged security: CSP, blocked network, foreign IPC and archive tampering', async ({}, info) => {
+  test.setTimeout(180_000);
+  const wire = await getCurrentFuseWire(exe);
+  for (const option of [FuseV1Options.RunAsNode, FuseV1Options.EnableNodeOptionsEnvironmentVariable, FuseV1Options.GrantFileProtocolExtraPrivileges]) expect(wire[option]).toBe(48);
+  for (const option of [FuseV1Options.EnableEmbeddedAsarIntegrityValidation, FuseV1Options.OnlyLoadAppFromAsar]) expect(wire[option]).toBe(49);
+  const app = await launch();
+  const server = createServer((_req, response) => { requests++; response.end('private'); });
+  let requests = 0;
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const port = (server.address() as { port: number }).port;
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByRole('heading', { name: 'Проекты', exact: true })).toBeVisible();
+    const blocked = await page.evaluate(async url => {
+      const script = document.createElement('script'); script.textContent = 'window.inlineAttackRan=true'; document.body.append(script);
+      const image = document.createElement('img'); image.setAttribute('onerror', 'window.imageAttackRan=true');
+      const errorEvent = new Promise<void>(resolve => image.addEventListener('error', () => resolve())); image.src = 'data:image/png;base64,AAAA'; document.body.append(image);
+      const remote = new Image(); const deniedImage = new Promise<boolean>(resolve => { remote.onerror = () => resolve(true); remote.onload = () => resolve(false); }); remote.src = url;
+      let deniedFetch = false; try { await fetch(url); } catch { deniedFetch = true; }
+      const imageBlocked = await deniedImage;
+      await errorEvent;
+      return { deniedFetch, imageBlocked, inline: (window as any).inlineAttackRan, handler: (window as any).imageAttackRan, require: typeof (window as any).require, process: typeof (window as any).process };
+    }, `http://127.0.0.1:${port}/client-data`);
+    expect(blocked).toEqual({ deniedFetch: true, imageBlocked: true, inline: undefined, handler: undefined, require: 'undefined', process: 'undefined' });
+    expect(requests).toBe(0);
+    const rejected = await app.evaluate(async ({ BrowserWindow }, url) => {
+      const foreign = new BrowserWindow({ show: false, webPreferences: { nodeIntegration: true, contextIsolation: false, sandbox: false } });
+      try {
+        await foreign.loadURL('data:text/html,<p>Untrusted security fixture</p>');
+        return await foreign.webContents.executeJavaScript(`(async () => { const ipc = await Promise.all(['trust:updates-state','trust:updates-download','trust:updates-install','trust:save-pdf'].map(channel => require('electron').ipcRenderer.invoke(channel, 'probe').then(() => false, () => true))); let blocked = false; try { await fetch(${JSON.stringify(url)}); } catch { blocked = true; } return { ipc, blocked }; })()`);
+      } finally { foreign.destroy(); }
+    }, `http://127.0.0.1:${port}/without-csp`);
+    expect(rejected).toEqual({ ipc: [true, true, true, true], blocked: true }); expect(requests).toBe(0);
+    await page.evaluate(() => window.location.assign('trust://planner/assets/not-an-app.js'));
+    expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.getURL())).toBe('trust://planner/');
+  } finally {
+    await close(app).catch(() => app.close()); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+  // Modify only a disposable copy; the published EXE and original archive stay intact.
+  const copy = path.join(tmpdir(), `trust-tamper-${randomUUID()}`);
+  await fs.cp(path.dirname(exe), copy, { recursive: true });
+  try {
+    const marker = path.join(copy, 'injected-code-ran.txt'), poison = path.join(copy, 'poison.cjs');
+    const payload = `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'injected')`;
+    await fs.writeFile(poison, payload);
+    const injection = await execute(path.join(copy, 'TrustRemontPlanner.exe'), ['--no-error-dialogs', '-e', payload], {
+      timeout: 6000, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', NODE_OPTIONS: `--require="${poison}"` },
+    }).then(() => ({ killed: false }), e => ({ killed: !!e.killed }));
+    expect(injection.killed).toBe(true); // Normal GUI kept running instead of evaluating -e.
+    expect(await fs.access(marker).then(() => true, () => false)).toBe(false);
+    const archive = path.join(copy, 'resources/app.asar'), original = await fs.readFile(archive);
+    const main = extractFile(archive, 'desktop/main.cjs'), offset = original.indexOf(main);
+    expect(offset).toBeGreaterThan(0);
+    const tampered = Buffer.from(original); tampered[offset] = tampered[offset] === 99 ? 100 : 99;
+    await fs.writeFile(archive, tampered);
+    const result = await execute(path.join(copy, 'TrustRemontPlanner.exe'), ['--no-error-dialogs'], { timeout: 20_000 }).then(() => ({ output: '', failed: false }), e => ({ output: String(e.stdout ?? '') + String(e.stderr ?? ''), failed: true }));
+    expect(result.failed).toBe(true); expect(result.output).toMatch(/integrity/i);
+    const report = info.outputPath('tamper-check.txt'); await fs.mkdir(path.dirname(report), { recursive: true }); await fs.writeFile(report, result.output);
+  } finally { await fs.rm(copy, { recursive: true, force: true }); }
 });
 
 test('installed Windows app: bad checksum is rejected; real update preserves the last edit and launches the new version', async () => {

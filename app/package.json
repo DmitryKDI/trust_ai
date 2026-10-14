@@ -1,7 +1,7 @@
 {
   "name": "trust-remont-planner",
   "private": true,
-  "version": "0.2.8",
+  "version": "0.2.9",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -97,7 +97,14 @@
         "repo": "trust_ai",
         "releaseType": "release"
       }
-    ]
+    ],
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true,
+      "grantFileProtocolExtraPrivileges": false
+    }
   },
   "overrides": {
     "global-agent": "4.1.3"

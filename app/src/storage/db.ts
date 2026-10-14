@@ -1,5 +1,6 @@
 // Хранение проектов и исходных файлов в IndexedDB браузера + резервная копия в JSON.
 import type { Project } from '../model/types';
+import { uid } from '../model/defaults';
 import { parseLearning, type LearnedPlan, type LearningBackup } from '../learning/model';
 import { checkedGeometry, checkedProject, parseSafeJson, MAX_DOCUMENT_BYTES } from './validate';
 
@@ -135,6 +136,17 @@ export async function importProject(text: string): Promise<Project> {
       const existing = transaction.objectStore('projects').getAll();
       existing.onsuccess = () => {
         if ((existing.result as Project[]).some(p => p.id !== project.id && p.documents.some(d => files.has(d.id)))) { transaction.abort(); return; }
+        // A foreign backup must never silently replace an existing project.
+        if ((existing.result as Project[]).some(p => p.id === project.id)) {
+          project.id = uid('p'); project.alias = `${project.alias.slice(0, 19990)} (копия)`; project.updatedAt = new Date().toISOString();
+          const remapped = new Map<string, Blob>();
+          project.documents = project.documents.map(d => {
+            const id = uid('doc'); remapped.set(id, files.get(d.id)!);
+            if (project.geometry.sourceDocumentId === d.id) project.geometry = { ...project.geometry, sourceDocumentId: id };
+            return { ...d, id };
+          });
+          files.clear(); for (const [id, blob] of remapped) files.set(id, blob);
+        }
         for (const [id, blob] of files) transaction.objectStore('files').put(blob, id);
         transaction.objectStore('projects').put(project);
       };
