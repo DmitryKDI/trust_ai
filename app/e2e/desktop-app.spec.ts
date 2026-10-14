@@ -10,7 +10,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { extractFile } from '@electron/asar';
+import { extractFile, uncache } from '@electron/asar';
 import { getCurrentFuseWire, FuseV1Options } from '@electron/fuses';
 
 const execute = promisify(execFile);
@@ -207,7 +207,11 @@ test('installed Windows app: bad checksum is rejected; real update preserves the
     await panel.getByRole('button', { name: 'Установить и перезапустить', exact: true }).click();
     await exited; app = undefined;
     await expect.poll(() => {
-      try { return JSON.parse(extractFile(path.join(installDir, 'resources/app.asar'), 'package.json').toString()).version; } catch { return ''; }
+      try {
+        const archive = path.join(installDir, 'resources/app.asar');
+        uncache(archive); // Installer replaces this path; old ASAR offsets/sizes are invalid.
+        return JSON.parse(extractFile(archive, 'package.json').toString()).version;
+      } catch { return ''; }
     }, { timeout: 120_000 }).toBe(next);
     // The updater launches the application normally; stop that CI-owned instance
     // and attach Playwright to a fresh launch to inspect the preserved project.

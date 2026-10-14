@@ -15,9 +15,10 @@ async function example(page: Page, three = false, mixed = false) {
   }
   if (three) { p.variants = [p.variants[0], ...(['storage', 'family'] as const).map((scenario, n) => ({ ...p.variants[0], id: `keep-${n}`, scenario, title: scenario, items: p.variants[0].items.map(i => ({ ...i, id: `${i.id}-${n}` })), approved: n === 0 }))]; p.selectedVariantId = 'keep-0'; }
   await page.goto('/'); await page.locator('input[type=file]').setInputFiles({ name: 'edit.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ format: 'trust-planner-project', version: 1, project: p, files: {} })) });
+  await expect(page.locator('.qf-canvas [data-wall-id]')).toHaveCount(6);
   return p;
 }
-async function saved(page: Page) { return page.evaluate(async () => { const db = await new Promise<IDBDatabase>(resolve => { const q = indexedDB.open('trust-planner'); q.onsuccess = () => resolve(q.result); }); const all = await new Promise<any[]>(resolve => { const q = db.transaction('projects').objectStore('projects').getAll(); q.onsuccess = () => resolve(q.result); }); db.close(); return all.find(p => p.alias === 'Редактор группы'); }); }
+async function saved(page: Page) { return page.evaluate(async () => { const alias = document.querySelector('.top strong')?.textContent; const db = await new Promise<IDBDatabase>(resolve => { const q = indexedDB.open('trust-planner'); q.onsuccess = () => resolve(q.result); }); const all = await new Promise<any[]>(resolve => { const q = db.transaction('projects').objectStore('projects').getAll(); q.onsuccess = () => resolve(q.result); }); db.close(); return all.find(p => p.alias === alias); }); }
 async function point(svg: Locator, x: number, y: number) {
   await svg.scrollIntoViewIfNeeded(); const p = await svg.evaluate((el: SVGSVGElement, value) => { const p = el.createSVGPoint(); p.x = value.x; p.y = value.y; const s = p.matrixTransform(el.getScreenCTM()!); return { x: s.x, y: s.y }; }, { x, y }); return p;
 }
