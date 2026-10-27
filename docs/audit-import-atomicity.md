@@ -1,5 +1,41 @@
 # Аудит импорта и зависимостей после v0.2.9
 
+## Доставка в main и подтверждённые GitHub-проверки
+
+Программные изменения отправлены в `origin/main`, commit
+`cfb271b0be264ebd1d85f9ff659e83b045c673e6`. До обновления main указывал на старую версию 0.1.0;
+теперь содержит актуальное приложение и исправления. Версия package — 0.2.9,
+но опубликованный установщик этой версии не заменялся.
+
+GitHub CI для этого точного SHA:
+
+- [Windows application](https://github.com/DmitryKDI/trust_ai/actions/runs/40448777724):
+  PASS. Сборка EXE, тестовый установщик следующей версии, **3 native Windows
+  сценария PASS**: PDF/резервная копия/сохранение, ограничения безопасности и
+  настоящее обновление. Встроенный editor job также PASS.
+- [Manual editor checks](https://github.com/DmitryKDI/trust_ai/actions/runs/40448776830): PASS.
+- [Windows launcher](https://github.com/DmitryKDI/trust_ai/actions/runs/40448776879): PASS.
+- [Pages](https://github.com/DmitryKDI/trust_ai/actions/runs/40448776839): сборка
+  и production-тесты выполнились, но `actions/configure-pages` получил
+  HTTP 404 при запросе Pages site; deploy SKIPPED. Нельзя считать сайт
+  опубликованным. Для отдельной публикации сайта требуется проверить
+  Settings → Pages → Source: GitHub Actions и доступность Pages для тарифа
+  приватного репозитория. Видимость репозитория не изменялась.
+
+`publish-update` завершился успешно с сообщением `Release v0.2.9 already exists`:
+существующий release не перезаписан. GitHub API подтвердил, что latest остался
+v0.2.9. Эти результаты подтверждают новый программный код на Windows;
+предыдущая запись «Windows NOT_RUN» ниже относится только к локальному Linux-
+этапу до отправки в CI. Финальная последующая правка затрагивает только
+документы, программное дерево и workflow совпадают с проверенным SHA.
+
+В облачной среде повторно исполнены и сохранены `install_script`/`start_skill`
+для main; Node 24, замороженная установка без Linux Electron binary,
+системный Chromium/PW_CHROMIUM, RTK с проверкой checksum. Запуск сервера
+проверен дважды; Vite 8.3.5, `rtk git status` показывает main. Сохранение draft
+не публикует снимок: для его обновления нужен Republish через настройки среды.
+
+
 ## Исходная версия и рабочая область
 
 Проверена рабочая ветка `claude/festive-turing-m7na3z`, полный базовый commit
