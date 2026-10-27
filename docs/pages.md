@@ -1,7 +1,7 @@
 # Запуск с телефона через GitHub Pages
 
 Workflow `.github/workflows/pages.yml` собирает `app/` из рабочей ветки
-`claude/festive-turing-m7na3z` и публикует только `app/dist`.
+`main` и публикует только `app/dist`.
 Исходные планы и локальные проекты в публикацию не включаются.
 
 ## Первое включение
@@ -9,7 +9,7 @@ Workflow `.github/workflows/pages.yml` собирает `app/` из рабоче
 1. В настройках `DmitryKDI/trust_ai` открыть **Settings → Pages**.
 2. В **Build and deployment → Source** выбрать **GitHub Actions**.
 3. Если у окружения `github-pages` ограничены ветки, разрешить рабочую ветку
-   `claude/festive-turing-m7na3z` (Settings → Environments → github-pages).
+   `main` (Settings → Environments → github-pages).
 4. В Actions открыть **Publish planner to GitHub Pages** и запустить workflow
    для рабочей ветки. Если он еще не отображается, следующий push в `app/`,
    `config/` или сам workflow запускает публикацию автоматически.
@@ -23,7 +23,7 @@ GitHub Pro/Team/Enterprise; доступность тарифа здесь не 
 
 ## Повторная публикация
 
-Изменения в указанной рабочей ветке запускают сборку; `main` не затрагивается.
+Изменения в `main` запускают сборку и проверку, затем публикацию при выполненных условиях GitHub Pages.
 Сборка использует Node 24, `npm ci` и `npm run build -- --base=/trust_ai/`.
 Базовый путь нужен также для файлов PDF и фоновых workers.
 Перед публикацией workflow запускает тест собранного приложения на desktop

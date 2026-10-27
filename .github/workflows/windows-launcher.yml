@@ -2,7 +2,7 @@ name: Windows launcher
 on:
   workflow_dispatch:
   push:
-    branches: [claude/festive-turing-m7na3z]
+    branches: [main]
     paths:
       - '*.bat'
       - 'scripts/*planner.ps1'

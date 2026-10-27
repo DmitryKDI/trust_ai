@@ -43,16 +43,25 @@ export const listLearnedPlans = () => tx<LearnedPlan[]>('learning', 'readonly', 
 export const getLearnedPlan = (key: string) => tx<LearnedPlan | undefined>('learning', 'readonly', s => s.get(key));
 export const forgetLearnedPlan = (key: string) => tx('learning', 'readwrite', s => { s.delete(key); });
 export const clearLearning = () => tx('learning', 'readwrite', s => { s.clear(); });
-export async function saveLearnedPlan(plan: LearnedPlan) {
-  const checked = parseLearning(JSON.stringify({ format: 'trust-planner-learning', version: 1, plans: [plan] }))[0];
-  checkedGeometry(checked.geometry);
-  if (new TextEncoder().encode(JSON.stringify(checked)).length + 81 > 5_000_000) throw new Error('Пример обучения больше 5 МБ.');
-  await tx('learning', 'readwrite', s => {
-    const request = s.getAll();
-    request.onsuccess = () => {
+function checkLearning(plans: LearnedPlan[]) {
+  for (const plan of plans) {
+    checkedGeometry(plan.geometry);
+    if (new TextEncoder().encode(JSON.stringify(plan)).length + 81 > 5_000_000) throw new Error('Пример обучения больше 5 МБ.');
+  }
+}
+
+/** Adds a checked batch within its caller's transaction, retaining newer edits and limits. */
+function writeLearning(s: IDBObjectStore, plans: LearnedPlan[], fail: (error: unknown) => void) {
+  const request = s.getAll();
+  request.onsuccess = () => {
+    try {
       const existing = request.result as LearnedPlan[];
-      if (existing.some(p => p.key === checked.key && p.savedAt > checked.savedAt)) return;
-      const all = [...existing.filter(p => p.key !== checked.key), checked].sort((a, b) => b.savedAt.localeCompare(a.savedAt));
+      const merged = new Map(existing.map(p => [p.key, p]));
+      for (const plan of plans) {
+        const previous = merged.get(plan.key);
+        if (!previous || previous.savedAt <= plan.savedAt) merged.set(plan.key, plan);
+      }
+      const all = [...merged.values()].sort((a, b) => b.savedAt.localeCompare(a.savedAt));
       let bytes = 80;
       const keep = new Set<string>();
       for (const p of all) {
@@ -60,10 +69,29 @@ export async function saveLearnedPlan(plan: LearnedPlan) {
         if (keep.size < 200 && bytes + size <= 5_000_000) { keep.add(p.key); bytes += size; }
       }
       for (const old of existing) if (!keep.has(old.key)) s.delete(old.key);
-      if (keep.has(checked.key)) s.put(checked);
-    };
-    return request;
-  });
+      for (const plan of plans) if (keep.has(plan.key) && merged.get(plan.key) === plan) s.put(plan);
+    } catch (error) { fail(error); }
+  };
+}
+
+async function saveLearning(plans: LearnedPlan[]) {
+  checkLearning(plans);
+  if (!plans.length) return;
+  const db = await open();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction('learning', 'readwrite');
+      let writeError: unknown;
+      transaction.oncomplete = () => resolve();
+      transaction.onabort = () => reject(writeError ?? transaction.error ?? new Error('Импорт обучения отменён'));
+      writeLearning(transaction.objectStore('learning'), plans, error => { writeError = error; transaction.abort(); });
+    });
+  } finally { db.close(); }
+}
+
+export async function saveLearnedPlan(plan: LearnedPlan) {
+  const checked = parseLearning(JSON.stringify({ format: 'trust-planner-learning', version: 1, plans: [plan] }))[0];
+  await saveLearning([checked]);
 }
 export async function learningBackup(): Promise<Blob> {
   const data: LearningBackup = { format: 'trust-planner-learning', version: 1, plans: await listLearnedPlans() };
@@ -71,8 +99,7 @@ export async function learningBackup(): Promise<Blob> {
 }
 export async function importLearning(text: string) {
   const plans = parseLearning(text); // Validate the complete batch before writing any examples.
-  for (const plan of plans) checkedGeometry(plan.geometry);
-  for (const plan of plans) await saveLearnedPlan(plan);
+  await saveLearning(plans);
 }
 
 export async function deleteProject(p: Project) {
@@ -115,7 +142,7 @@ export async function importProject(text: string): Promise<Project> {
   if (!data || data.format !== 'trust-planner-project' || data.version !== 1) throw new Error('Это не поддерживаемый файл проекта планировщика');
   const project = checkedProject(data.project);
   const learning = data.learning ? parseLearning(JSON.stringify(data.learning)) : [];
-  for (const plan of learning) checkedGeometry(plan.geometry);
+  checkLearning(learning);
   if (!data.files || typeof data.files !== 'object' || Array.isArray(data.files)) throw new Error('В резервной копии отсутствует список файлов.');
   const files = new Map<string, Blob>();
   for (const [id, f] of Object.entries(data.files)) {
@@ -129,30 +156,33 @@ export async function importProject(text: string): Promise<Project> {
   const db = await open();
   try {
     await new Promise<void>((resolve, reject) => {
-      const transaction = db.transaction(['projects', 'files'], 'readwrite');
+      const transaction = db.transaction(['projects', 'files', 'learning'], 'readwrite');
+      let writeError: unknown;
+      const fail = (error: unknown) => { writeError = error; transaction.abort(); };
       transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error);
-      transaction.onabort = () => reject(new Error('Импорт отменён: исходники используются другим проектом или хранилище недоступно.'));
+      transaction.onabort = () => reject(writeError ?? transaction.error ?? new Error('Импорт отменён: исходники используются другим проектом или хранилище недоступно.'));
       const existing = transaction.objectStore('projects').getAll();
       existing.onsuccess = () => {
-        if ((existing.result as Project[]).some(p => p.id !== project.id && p.documents.some(d => files.has(d.id)))) { transaction.abort(); return; }
-        // A foreign backup must never silently replace an existing project.
-        if ((existing.result as Project[]).some(p => p.id === project.id)) {
-          project.id = uid('p'); project.alias = `${project.alias.slice(0, 19990)} (копия)`; project.updatedAt = new Date().toISOString();
-          const remapped = new Map<string, Blob>();
-          project.documents = project.documents.map(d => {
-            const id = uid('doc'); remapped.set(id, files.get(d.id)!);
-            if (project.geometry.sourceDocumentId === d.id) project.geometry = { ...project.geometry, sourceDocumentId: id };
-            return { ...d, id };
-          });
-          files.clear(); for (const [id, blob] of remapped) files.set(id, blob);
-        }
-        for (const [id, blob] of files) transaction.objectStore('files').put(blob, id);
-        transaction.objectStore('projects').put(project);
+        try {
+          if ((existing.result as Project[]).some(p => p.id !== project.id && p.documents.some(d => files.has(d.id)))) { transaction.abort(); return; }
+          // A foreign backup must never silently replace an existing project.
+          if ((existing.result as Project[]).some(p => p.id === project.id)) {
+            project.id = uid('p'); project.alias = `${project.alias.slice(0, 19990)} (копия)`; project.updatedAt = new Date().toISOString();
+            const remapped = new Map<string, Blob>();
+            project.documents = project.documents.map(d => {
+              const id = uid('doc'); remapped.set(id, files.get(d.id)!);
+              if (project.geometry.sourceDocumentId === d.id) project.geometry = { ...project.geometry, sourceDocumentId: id };
+              return { ...d, id };
+            });
+            files.clear(); for (const [id, blob] of remapped) files.set(id, blob);
+          }
+          for (const [id, blob] of files) transaction.objectStore('files').put(blob, id);
+          transaction.objectStore('projects').put(project);
+          if (learning.length) writeLearning(transaction.objectStore('learning'), learning, fail);
+        } catch (error) { fail(error); }
       };
     });
   } finally { db.close(); }
-  for (const plan of learning) await saveLearnedPlan(plan);
   return project;
 }
 

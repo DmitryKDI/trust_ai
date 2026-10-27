@@ -2,7 +2,7 @@ name: Publish planner to GitHub Pages
 
 on:
   push:
-    branches: [claude/festive-turing-m7na3z]
+    branches: [main]
     paths:
       - app/**
       - config/**

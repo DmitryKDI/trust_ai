@@ -4,7 +4,10 @@ import { twoRoom } from '../tests/fixtures/synthetic';
 import { geometryHash } from '../src/geometry/plan';
 import { PNG } from 'pngjs';
 
-test.use({ launchOptions: { args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] } });
+test.use({ launchOptions: {
+  ...(process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {}),
+  args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
+} });
 async function saved(page: Page) {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => { const r = indexedDB.open('trust-planner'); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });

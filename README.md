@@ -6,7 +6,7 @@
 
 ## Рабочая ветка
 
-Вся текущая разработка находится в **`claude/festive-turing-m7na3z`**. Основная ветка `main` отстаёт.
+Вся текущая разработка ведётся в **`main`**. В неё перенесена актуальная версия приложения с сохранением истории.
 
 Для продолжения разработки сначала прочитайте [AGENTS.md](AGENTS.md): правила комплексных правок, инструменты, сохранность данных, проверки и выпуск. Затем используйте [docs/HANDOFF.md](docs/HANDOFF.md) и [docs/TZ.md](docs/TZ.md). Их старые разделы описывают историческое состояние; актуальное поведение сверяйте с кодом и проверками конкретного SHA.
 
@@ -37,7 +37,7 @@
 При первом запуске выполните в PowerShell или терминале:
 
 ```powershell
-git clone --branch claude/festive-turing-m7na3z --single-branch https://github.com/DmitryKDI/trust_ai.git
+git clone --branch main --single-branch https://github.com/DmitryKDI/trust_ai.git
 cd trust_ai/app
 npm ci
 npm run dev
@@ -48,8 +48,8 @@ npm run dev
 Если репозиторий уже скачан, остановите сервер и из корня `trust_ai` выполните:
 
 ```powershell
-git switch claude/festive-turing-m7na3z
-git pull --ff-only origin claude/festive-turing-m7na3z
+git switch main
+git pull --ff-only origin main
 cd app
 npm ci
 npm run dev
